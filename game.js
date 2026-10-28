@@ -249,13 +249,21 @@ class InputSystem {
             if (s) { s.textContent = 'Tracking'; s.style.color = '#00ff88'; }
         } else {
             this.gesture.active = false;
-            this.gesture.tilt *= 0.9;
+            this.gesture.tilt = 0;
             this.gesture.throttle = 0;
             this.gesture.brake = 0;
-            const s = document.getElementById('g-status');
-            if (s) { s.textContent = 'No Hand'; s.style.color = '#ff0055'; }
+            this.resetDebugPanel();
         }
         this.ctxPreview.restore();
+    }
+
+    resetDebugPanel() {
+        const s = document.getElementById('g-status');
+        if (s) { s.textContent = 'No Hand'; s.style.color = '#ff0055'; }
+        const tiltEl = document.getElementById('g-tilt');
+        if (tiltEl) tiltEl.textContent = '0°';
+        const actionEl = document.getElementById('g-action');
+        if (actionEl) actionEl.textContent = 'Idle';
     }
 
     processGesture(landmarks) {
@@ -520,7 +528,7 @@ class Game {
                 const lane = lanes[Math.floor(this.rng() * lanes.length)];
                 const count = 3 + Math.floor(this.rng() * 3); // 3-5
                 for (let c = 0; c < count; c++) {
-                    const targetSeg = i + c;
+                    const targetSeg = i + c * 3;
                     if (targetSeg < TOTAL_SEGMENTS) {
                         this.segments[targetSeg].coins.push({ offset: lane, collected: false });
                     }
@@ -628,6 +636,9 @@ class Game {
         const trackingLost = this.input.isTrackingLost();
         if (this.trackingLostEl) {
             this.trackingLostEl.style.display = trackingLost ? 'flex' : 'none';
+        }
+        if (trackingLost) {
+            this.input.resetDebugPanel();
         }
 
         const cmd = this.input.getCommand();
@@ -857,6 +868,7 @@ class Game {
 
         // Back-to-front: sprites, cars, coins
         for (let n = CONFIG.DRAW_DISTANCE - 1; n > 0; n--) {
+            if (n < 3) continue;
             const segment = this.segments[(baseSegment.index + n) % this.segments.length];
 
             for (const car of segment.cars) {
@@ -995,7 +1007,7 @@ class Game {
      */
     renderCoin(x, y, scale) {
         if (scale <= 0) return;
-        const r = Math.max(4, scale * 0.12);
+        const r = Math.min(28, Math.max(4, scale * 0.06));
         this.ctx.save();
         this.ctx.beginPath();
         this.ctx.arc(x, y - r * 1.5, r, 0, Math.PI * 2);
