@@ -210,7 +210,7 @@ class InputSystem {
         this.canvasPreview = document.getElementById('webcam-preview');
         this.ctxPreview = this.canvasPreview.getContext('2d');
 
-        this.hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        this.hands = new Hands({ locateFile: (file) => `vendor/mediapipe/hands/${file}` });
         this.hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
