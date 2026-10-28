@@ -26,8 +26,8 @@ const CONFIG = {
     HIT_SPEED_FACTOR: 0.4,   // speed cut to 40% on hit
     HIT_FLASH_MS: 300,       // red flash duration
     COIN_SCORE: 5,
+    CRASH_PENALTY: 10,       // score deducted per hit (PLAN §7)
     HIT_LIFE_COST: 1,
-    HIT_COIN_COST: 2,
     // Traffic hit requires car to be > 250 units AHEAD of player first
     CAR_HIT_AHEAD_THRESHOLD: 250,
 
@@ -431,8 +431,8 @@ class Game {
 
         // Phase 2 state
         this.lives = CONFIG.START_LIVES;
-        this.coins = 0;
-        this.hitFlashUntil = 0;       // timestamp until red flash is shown
+        this.coinsCollected = 0;  // hidden counter: coins picked up, never reduced (PLAN §7)
+        this.hitFlashUntil = 0;   // timestamp until red flash is shown
 
         this.mountainPoints = [];
         this.highScore = parseInt(localStorage.getItem('gestureRiderHighScore')) || 0;
@@ -510,16 +510,18 @@ class Game {
                 this.addSprite(i, lane, type);
             }
 
-            // Coin lines — short run of 3-5 coins in a lane
-            // Guard: only write to segments that have already been pushed into this.segments.
-            if (i > 10 && i % 30 === 0 && this.rng() > 0.5) {
+        }
+
+        // --- Second pass: coin placement (all segments now exist) ---
+        // Runs of 3-5 coins in a lane, seeded RNG continues from where it left off.
+        for (let i = 10; i < TOTAL_SEGMENTS; i++) {
+            if (i % 30 === 0 && this.rng() > 0.5) {
                 const lanes = [-0.65, 0, 0.65];
                 const lane = lanes[Math.floor(this.rng() * lanes.length)];
                 const count = 3 + Math.floor(this.rng() * 3); // 3-5
                 for (let c = 0; c < count; c++) {
                     const targetSeg = i + c;
-                    // targetSeg must already exist in the array (built so far)
-                    if (targetSeg < this.segments.length) {
+                    if (targetSeg < TOTAL_SEGMENTS) {
                         this.segments[targetSeg].coins.push({ offset: lane, collected: false });
                     }
                 }
@@ -567,7 +569,7 @@ class Game {
         this.position = 0;
         this.playerX = 0;
         this.lives = CONFIG.START_LIVES;
-        this.coins = 0;
+        this.coinsCollected = 0;
         this.hitFlashUntil = 0;
         this.lastTime = performance.now();
         this.audio.resume();
@@ -583,17 +585,18 @@ class Game {
     }
 
     /**
-     * takeHit — one life lost, -2 coins, speed cut, flash. Called instead of crash().
+     * takeHit — -1 life, -CRASH_PENALTY score, speed cut, red flash, crash sound.
+     * No coin deduction (PLAN §7). Per-obstacle hit flag prevents double-hits.
      * If lives reach 0, transitions to WASTED.
      */
     takeHit() {
         if (this.gameState !== STATE.RACING) return;
-        // No invulnerability timer — the per-obstacle hit flag is the only protection (PLAN §6).
         this.lives -= CONFIG.HIT_LIFE_COST;
-        this.coins = Math.max(0, this.coins - CONFIG.HIT_COIN_COST);
+        this.addScore(-CONFIG.CRASH_PENALTY);
         this.speed *= CONFIG.HIT_SPEED_FACTOR;
         this.hitFlashUntil = Date.now() + CONFIG.HIT_FLASH_MS;
         this.audio.playCrash();
+        this._showScoreFloat(`-${CONFIG.CRASH_PENALTY}`, false);
         this._updateHUD();
 
         if (this.lives <= 0) {
@@ -615,7 +618,6 @@ class Game {
 
         document.getElementById('game-over-title').textContent = 'WASTED';
         document.getElementById('final-score').textContent = Math.floor(this.score);
-        document.getElementById('final-coins').textContent = this.coins;
         document.getElementById('best-score').textContent = this.highScore;
         document.getElementById('game-over-screen').classList.remove('hidden');
     }
@@ -666,7 +668,6 @@ class Game {
         document.getElementById('distVal').textContent = (this.distanceRun / 100000).toFixed(1);
         document.getElementById('speedVal').textContent = Math.floor(this.speed / 100);
         document.getElementById('livesVal').textContent = '❤️'.repeat(Math.max(0, this.lives));
-        document.getElementById('coinsVal').textContent = this.coins;
     }
 
     /**
@@ -735,9 +736,9 @@ class Game {
                     const playerW = 0.2;
                     if (this.overlap(this.playerX, playerW, coin.offset, coinW)) {
                         coin.collected = true;
-                        this.coins++;
+                        this.coinsCollected++;
                         this.addScore(CONFIG.COIN_SCORE);
-                        this._showFloatMsg(`+${CONFIG.COIN_SCORE}`, '#ffd700');
+                        this._showScoreFloat(`+${CONFIG.COIN_SCORE}`, true);
                     }
                 }
             }
@@ -804,15 +805,19 @@ class Game {
         return this.segments[Math.floor(z / CONFIG.SEGMENT_LENGTH) % this.segments.length];
     }
 
-    _showFloatMsg(text, color) {
+    /**
+     * _showScoreFloat — floating score delta popup near the score HUD.
+     * isPositive=true → green, false → red. Duration 700 ms (PLAN §7).
+     */
+    _showScoreFloat(text, isPositive) {
         const area = document.getElementById('message-area');
         if (!area) return;
         const msg = document.createElement('div');
-        msg.className = 'float-msg';
-        msg.style.color = color || '';
+        msg.className = 'float-msg score-float';
+        msg.style.color = isPositive ? '#00ff88' : '#ff3366';
         msg.textContent = text;
         area.appendChild(msg);
-        setTimeout(() => { if (msg.parentNode) msg.parentNode.removeChild(msg); }, 1200);
+        setTimeout(() => { if (msg.parentNode) msg.parentNode.removeChild(msg); }, 700);
     }
 
     // ----------------------------------------------------------------
