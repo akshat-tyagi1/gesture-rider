@@ -35,6 +35,15 @@ const CONFIG = {
     RACE_DISTANCE: 1200000,
     FINISH_BONUS: 50,
 
+    // Quiz / checkpoints (Phase 3)
+    CHECKPOINT_THRESHOLDS: [0.20, 0.40, 0.60, 0.80],
+    QUIZ_CORRECT_SCORE: 100,
+    QUIZ_WRONG_PENALTY: 20,
+    QUIZ_LOCKOUT_MS: 600,       // ignore answer keys for first 600 ms
+    QUIZ_FEEDBACK_AUTO_MS: 6000, // auto-dismiss feedback after 6 s
+    COUNTDOWN_SECONDS: 3,
+    GRACE_DURATION: 1.0,         // 1 s grace after countdown (no hit checks)
+
     COLORS: {
         SKY_TOP: '#000022',
         SKY_BOTTOM: '#003366',
@@ -54,12 +63,16 @@ const CONFIG = {
  * ------------------------------------------------------------------
  * GAME STATES  (single source of truth)
  * ------------------------------------------------------------------
- * MENU -> RACING -> WASTED -> MENU
+ * MENU -> RACING -> QUIZ -> FEEDBACK -> COUNTDOWN -> RACING ...
+ * RACING -> WASTED (lives=0) or FINISHED (distance reached).
  * Only RACING advances simulation, traffic, collisions, race timer.
  */
 const STATE = {
     MENU: 'MENU',
     RACING: 'RACING',
+    QUIZ: 'QUIZ',
+    FEEDBACK: 'FEEDBACK',
+    COUNTDOWN: 'COUNTDOWN',
     WASTED: 'WASTED',
     FINISHED: 'FINISHED'
 };
@@ -447,6 +460,20 @@ class Game {
         this.coinsCollected = 0;  // hidden counter: coins picked up, never reduced (PLAN §7)
         this.hitFlashUntil = 0;   // timestamp until red flash is shown
 
+        // Phase 3 — quiz/checkpoint state
+        this.playerName = 'Rider';
+        this.subject = 'python';
+        this.quizRun = null;          // QuizRun from quiz.js
+        this.checkpointIndex = 0;     // 0..4 — how many checkpoints reached
+        this.graceTime = 0;           // seconds remaining of post-countdown grace
+        this.currentQuestion = null;  // question object from quiz.js
+        this.quizStartTime = 0;       // performance.now() when question shown
+        this.quizAnswerLocked = false;
+        this.quizChosenIndex = -1;    // index chosen by player (0-3, or -1)
+        this.feedbackStartTime = 0;
+        this.countdownStartTime = 0;
+        this.countdownNum = 3;
+
         this.mountainPoints = [];
         this.highScore = parseInt(localStorage.getItem('gestureRiderHighScore')) || 0;
         this.rng = makeLCG(SEED);
@@ -461,6 +488,10 @@ class Game {
 
         document.getElementById('restart-btn').addEventListener('click', () => this.restart());
         window.addEventListener('resize', () => this._onResize());
+
+        // --- Quiz keydown handler ---
+        this._onQuizKey = this._onQuizKey.bind(this);
+        window.addEventListener('keydown', this._onQuizKey);
     }
 
     _buildMountains() {
@@ -563,7 +594,12 @@ class Game {
         });
     }
 
-    start() {
+    start(name, subject) {
+        this.playerName = name || 'Rider';
+        this.subject = subject || 'python';
+        this.quizRun = Quiz.startRun(this.subject);
+        this.checkpointIndex = 0;
+        this.graceTime = 0;
         this.audio.init();
         this.gameState = STATE.RACING;
         this.lastTime = performance.now();
@@ -575,6 +611,8 @@ class Game {
 
     restart() {
         document.getElementById('game-over-screen').classList.add('hidden');
+        document.getElementById('quiz-screen').classList.add('hidden');
+        document.getElementById('countdown-screen').classList.add('hidden');
         this.resetRoad();
         this.speed = 0;
         this.score = 0;
@@ -584,6 +622,18 @@ class Game {
         this.lives = CONFIG.START_LIVES;
         this.coinsCollected = 0;
         this.hitFlashUntil = 0;
+        // Quiz reset
+        this.checkpointIndex = 0;
+        this.graceTime = 0;
+        this.currentQuestion = null;
+        this.quizAnswerLocked = false;
+        this.quizChosenIndex = -1;
+        this.feedbackStartTime = 0;
+        this.countdownStartTime = 0;
+        this.countdownNum = 3;
+        this.quizRun = Quiz.startRun(this.subject);
+        const cpEl = document.getElementById('checkpointVal');
+        if (cpEl) cpEl.textContent = 'Q 0/4';
         this.lastTime = performance.now();
         this.audio.resume();
         this.audio.update(0);
@@ -604,6 +654,7 @@ class Game {
      */
     takeHit() {
         if (this.gameState !== STATE.RACING) return;
+        if (this.graceTime > 0) return; // post-countdown grace
         this.lives -= CONFIG.HIT_LIFE_COST;
         this.addScore(-CONFIG.CRASH_PENALTY);
         this.speed *= CONFIG.HIT_SPEED_FACTOR;
@@ -633,6 +684,16 @@ class Game {
         document.getElementById('game-over-title').textContent = title;
         document.getElementById('final-score').textContent = Math.floor(this.score);
         document.getElementById('best-score').textContent = this.highScore;
+
+        // Results stats (PLAN §7)
+        const statCoins = document.getElementById('stat-coins');
+        if (statCoins) statCoins.textContent = this.coinsCollected;
+        const quizStats = this.quizRun ? this.quizRun.stats() : { answered: 0, accuracyPct: 0 };
+        const statAnswered = document.getElementById('stat-answered');
+        if (statAnswered) statAnswered.textContent = `${quizStats.answered} / 4`;
+        const statAccuracy = document.getElementById('stat-accuracy');
+        if (statAccuracy) statAccuracy.textContent = `${quizStats.accuracyPct}%`;
+
         document.getElementById('game-over-screen').classList.remove('hidden');
     }
 
@@ -651,6 +712,58 @@ class Game {
     }
 
     update(dt) {
+        // --- QUIZ state: drive timer from performance.now() ---
+        if (this.gameState === STATE.QUIZ) {
+            this.audio.update(0);
+            if (this.trackingLostEl) this.trackingLostEl.style.display = 'none';
+            if (this.currentQuestion) {
+                const elapsed = (performance.now() - this.quizStartTime) / 1000;
+                const timeLimit = this.currentQuestion.timeLimit;
+                const remaining = Math.max(0, timeLimit - elapsed);
+                const timerNum = document.getElementById('quiz-timer-num');
+                const timerBar = document.getElementById('quiz-timer-bar');
+                if (timerNum) timerNum.textContent = Math.ceil(remaining);
+                if (timerBar) timerBar.style.width = `${(remaining / timeLimit) * 100}%`;
+                if (remaining <= 0 && !this.quizAnswerLocked) {
+                    // Timeout
+                    this.quizAnswerLocked = true;
+                    this.quizChosenIndex = -1;
+                    this.quizRun.record('timeout');
+                    this.addScore(-CONFIG.QUIZ_WRONG_PENALTY);
+                    this._showScoreFloat(`-${CONFIG.QUIZ_WRONG_PENALTY}`, false);
+                    this._startFeedback('TIME UP');
+                }
+            }
+            return;
+        }
+
+        // --- FEEDBACK state: auto-dismiss after 6 s ---
+        if (this.gameState === STATE.FEEDBACK) {
+            this.audio.update(0);
+            if (this.trackingLostEl) this.trackingLostEl.style.display = 'none';
+            if (performance.now() - this.feedbackStartTime >= CONFIG.QUIZ_FEEDBACK_AUTO_MS) {
+                this._startCountdown();
+            }
+            return;
+        }
+
+        // --- COUNTDOWN state: 3-2-1 ---
+        if (this.gameState === STATE.COUNTDOWN) {
+            this.audio.update(0);
+            if (this.trackingLostEl) this.trackingLostEl.style.display = 'none';
+            const elapsed = (performance.now() - this.countdownStartTime) / 1000;
+            const num = CONFIG.COUNTDOWN_SECONDS - Math.floor(elapsed);
+            if (num !== this.countdownNum && num >= 1) {
+                this.countdownNum = num;
+                const cdEl = document.getElementById('countdown-num');
+                if (cdEl) cdEl.textContent = num;
+            }
+            if (elapsed >= CONFIG.COUNTDOWN_SECONDS) {
+                this._resumeRacing();
+            }
+            return;
+        }
+
         if (this.gameState !== STATE.RACING) return;
 
         const trackingLost = this.input.isTrackingLost();
@@ -680,6 +793,9 @@ class Game {
         if ((this.playerX < -1 || this.playerX > 1) && this.speed > 2000) this.speed += CONFIG.OFF_ROAD_DECEL * dt * 60;
         this.playerX = Math.max(-2, Math.min(2, this.playerX));
 
+        // Decrement grace time
+        if (this.graceTime > 0) this.graceTime = Math.max(0, this.graceTime - dt);
+
         // --- Substepped movement and collisions ---
         const steps = Math.max(1, Math.ceil(this.speed * dt / 100));
         const subDt = dt / steps;
@@ -707,7 +823,199 @@ class Game {
             }
         }
 
+        // --- Checkpoint detection (after substeps, while still RACING) ---
+        if (this.gameState === STATE.RACING && this.checkpointIndex < CONFIG.CHECKPOINT_THRESHOLDS.length) {
+            const progress = this.getRaceProgress();
+            if (progress >= CONFIG.CHECKPOINT_THRESHOLDS[this.checkpointIndex]) {
+                this.checkpointIndex++;
+                const cpEl = document.getElementById('checkpointVal');
+                if (cpEl) cpEl.textContent = `Q ${this.checkpointIndex}/4`;
+                this._showQuiz();
+            }
+        }
+
         this._updateHUD();
+    }
+
+    // ----------------------------------------------------------------
+    // QUIZ FLOW METHODS
+    // ----------------------------------------------------------------
+
+    /**
+     * _showQuiz — transition to QUIZ state, fill quiz card from quiz.js.
+     */
+    _showQuiz() {
+        this.gameState = STATE.QUIZ;
+        const q = this.quizRun.nextQuestion(this.checkpointIndex);
+        this.currentQuestion = q;
+        this.quizStartTime = performance.now();
+        this.quizAnswerLocked = false;
+        this.quizChosenIndex = -1;
+
+        // Fill card
+        const progEl = document.getElementById('quiz-progress');
+        if (progEl) progEl.textContent = `Question ${this.checkpointIndex} of 4`;
+        const qEl = document.getElementById('quiz-question');
+        if (qEl) qEl.textContent = q.q;
+
+        const letters = ['A', 'B', 'C', 'D'];
+        for (let i = 0; i < 4; i++) {
+            const btn = document.getElementById(`quiz-opt-${i}`);
+            if (!btn) continue;
+            btn.className = 'quiz-opt-btn'; // reset classes
+            btn.disabled = false;
+            const keyEl = btn.querySelector('.opt-key');
+            const textEl = btn.querySelector('.opt-text');
+            if (keyEl) keyEl.textContent = letters[i];
+            if (textEl) textEl.textContent = q.options[i];
+        }
+
+        // Timer initial
+        const timerNum = document.getElementById('quiz-timer-num');
+        const timerBar = document.getElementById('quiz-timer-bar');
+        if (timerNum) timerNum.textContent = q.timeLimit;
+        if (timerBar) timerBar.style.width = '100%';
+
+        // Show quiz card, hide feedback within it
+        document.getElementById('quiz-feedback').classList.add('hidden');
+        document.getElementById('quiz-screen').classList.remove('hidden');
+    }
+
+    /**
+     * _handleQuizAnswer — process the selected answer.
+     */
+    _handleQuizAnswer(chosenIndex) {
+        if (this.gameState !== STATE.QUIZ) return;
+        if (this.quizAnswerLocked) return;
+        // Lockout for first 600 ms
+        if (performance.now() - this.quizStartTime < CONFIG.QUIZ_LOCKOUT_MS) return;
+
+        this.quizAnswerLocked = true;
+        this.quizChosenIndex = chosenIndex;
+
+        const q = this.currentQuestion;
+        const correct = chosenIndex === q.answerIndex;
+
+        // Record in quiz.js
+        this.quizRun.record(correct ? 'correct' : 'wrong');
+
+        // Score
+        if (correct) {
+            this.addScore(CONFIG.QUIZ_CORRECT_SCORE);
+            this._showScoreFloat(`+${CONFIG.QUIZ_CORRECT_SCORE}`, true);
+        } else {
+            this.addScore(-CONFIG.QUIZ_WRONG_PENALTY);
+            this._showScoreFloat(`-${CONFIG.QUIZ_WRONG_PENALTY}`, false);
+        }
+
+        // Mark buttons
+        const chosenBtn = document.getElementById(`quiz-opt-${chosenIndex}`);
+        if (chosenBtn) chosenBtn.classList.add(correct ? 'correct' : 'wrong');
+        if (!correct) {
+            const correctBtn = document.getElementById(`quiz-opt-${q.answerIndex}`);
+            if (correctBtn) correctBtn.classList.add('correct');
+        }
+
+        this._startFeedback(correct ? 'CORRECT' : 'WRONG');
+    }
+
+    /**
+     * _startFeedback — show feedback panel, transition to FEEDBACK state.
+     */
+    _startFeedback(resultLabel) {
+        this.gameState = STATE.FEEDBACK;
+        this.feedbackStartTime = performance.now();
+
+        const q = this.currentQuestion;
+        const letters = ['A', 'B', 'C', 'D'];
+
+        const labelEl = document.getElementById('quiz-result-label');
+        if (labelEl) {
+            labelEl.textContent = resultLabel;
+            if (resultLabel === 'CORRECT') labelEl.style.color = '#44ff88';
+            else labelEl.style.color = '#ff6677';
+        }
+
+        const correctEl = document.getElementById('quiz-correct-answer');
+        if (correctEl) correctEl.textContent = `Correct answer: ${letters[q.answerIndex]}. ${q.options[q.answerIndex]}`;
+
+        const explainEl = document.getElementById('quiz-explanation');
+        if (explainEl) explainEl.textContent = q.explain || '';
+
+        // Disable option buttons
+        for (let i = 0; i < 4; i++) {
+            const btn = document.getElementById(`quiz-opt-${i}`);
+            if (btn) btn.disabled = true;
+        }
+
+        document.getElementById('quiz-feedback').classList.remove('hidden');
+    }
+
+    /**
+     * _startCountdown — hide quiz, show 3-2-1 countdown.
+     */
+    _startCountdown() {
+        this.gameState = STATE.COUNTDOWN;
+        this.countdownStartTime = performance.now();
+        this.countdownNum = CONFIG.COUNTDOWN_SECONDS;
+
+        document.getElementById('quiz-screen').classList.add('hidden');
+        const cdEl = document.getElementById('countdown-num');
+        if (cdEl) cdEl.textContent = this.countdownNum;
+        document.getElementById('countdown-screen').classList.remove('hidden');
+    }
+
+    /**
+     * _resumeRacing — called when countdown finishes.
+     */
+    _resumeRacing() {
+        document.getElementById('countdown-screen').classList.add('hidden');
+
+        // Reset timing to avoid dt jump
+        this.lastTime = performance.now();
+
+        // Clear stale input
+        this.input.keys = {};
+        this.input.keyboardSteer = 0;
+        this.input.gesture.tilt = 0;
+        this.input.gesture.throttle = 0;
+        this.input.gesture.brake = 0;
+
+        // Grace period: 1 s of racing where hits are skipped
+        this.graceTime = CONFIG.GRACE_DURATION;
+
+        this.gameState = STATE.RACING;
+    }
+
+    /**
+     * _onQuizKey — keydown handler for quiz answers and feedback dismiss.
+     */
+    _onQuizKey(e) {
+        // Prevent Space/Enter from scrolling/triggering
+        if (e.code === 'Space' || e.code === 'Enter') {
+            if (this.gameState === STATE.QUIZ || this.gameState === STATE.FEEDBACK || this.gameState === STATE.COUNTDOWN) {
+                e.preventDefault();
+            }
+        }
+
+        // Answer keys in QUIZ state
+        if (this.gameState === STATE.QUIZ && !this.quizAnswerLocked) {
+            if (e.repeat) return;
+            const map = { 'KeyA': 0, 'Digit1': 0, 'Numpad1': 0, 'KeyB': 1, 'Digit2': 1, 'Numpad2': 1, 'KeyC': 2, 'Digit3': 2, 'Numpad3': 2, 'KeyD': 3, 'Digit4': 3, 'Numpad4': 3 };
+            if (e.code in map) {
+                e.preventDefault();
+                this._handleQuizAnswer(map[e.code]);
+            }
+            return;
+        }
+
+        // Dismiss feedback with Space/Enter
+        if (this.gameState === STATE.FEEDBACK) {
+            if (e.code === 'Space' || e.code === 'Enter') {
+                this._startCountdown();
+            }
+            return;
+        }
     }
 
     _updateHUD() {
@@ -1131,6 +1439,9 @@ class Game {
         this.lastTime = now;
         this.update(dt);
         this.render();
+
+        // In frozen states (QUIZ/FEEDBACK/COUNTDOWN) we still render the road
+        // but the sim doesn't advance (handled by update returning early).
     }
 }
 
@@ -1141,32 +1452,60 @@ class Game {
  */
 window.onload = () => {
     const startBtn = document.getElementById('start-btn');
+    const quickStartBtn = document.getElementById('quick-start-btn');
     const loadingMsg = document.getElementById('loading-msg');
     const overlay = document.getElementById('overlay-screen');
+    const nameInput = document.getElementById('player-name');
     const game = new Game();
 
-    const startGame = () => {
+    // --- Subject picker ---
+    let selectedSubject = 'python';
+    const subjectBtns = document.querySelectorAll('.subject-btn');
+    subjectBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            subjectBtns.forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            selectedSubject = btn.getAttribute('data-subject') || 'python';
+        });
+    });
+
+    const getPlayerName = () => {
+        const raw = (nameInput && nameInput.value) ? nameInput.value.trim() : '';
+        if (!raw) return 'Rider';
+        return raw.slice(0, 12);
+    };
+
+    const startGame = (name, subject) => {
         if (game.gameState !== STATE.MENU) return;
         overlay.classList.add('hidden');
-        game.start();
+        game.start(name, subject);
+    };
+
+    // Enable/disable both start buttons together
+    const setBtnsEnabled = (enabled) => {
+        startBtn.disabled = !enabled;
+        if (quickStartBtn) quickStartBtn.disabled = !enabled;
     };
 
     (async () => {
-        startBtn.disabled = true;
+        setBtnsEnabled(false);
         startBtn.textContent = 'Loading Camera...';
         loadingMsg.textContent = 'Initializing hand tracking...';
         try {
             await game.input.startCamera();
-            startBtn.disabled = false;
+            setBtnsEnabled(true);
             startBtn.textContent = 'START ENGINE';
             loadingMsg.textContent = 'Camera ready — click START ENGINE or press W to go';
         } catch (e) {
             console.error(e);
-            startBtn.disabled = false;
+            setBtnsEnabled(true);
             startBtn.textContent = 'START (Keyboard Mode)';
             loadingMsg.textContent = 'Camera unavailable — keyboard controls only';
         }
     })();
 
-    startBtn.addEventListener('click', () => startGame());
+    startBtn.addEventListener('click', () => startGame(getPlayerName(), selectedSubject));
+    if (quickStartBtn) {
+        quickStartBtn.addEventListener('click', () => startGame('Rider', 'python'));
+    }
 };
