@@ -21,6 +21,16 @@ const CONFIG = {
     OFF_ROAD_DECEL: -200,
     SKY_SPEED: 0.001,
 
+    // Phase 2
+    START_LIVES: 3,
+    HIT_SPEED_FACTOR: 0.4,   // speed cut to 40% on hit
+    HIT_FLASH_MS: 300,       // red flash duration
+    COIN_SCORE: 5,
+    HIT_LIFE_COST: 1,
+    HIT_COIN_COST: 2,
+    // Traffic hit requires car to be > 250 units AHEAD of player first
+    CAR_HIT_AHEAD_THRESHOLD: 250,
+
     COLORS: {
         SKY_TOP: '#000022',
         SKY_BOTTOM: '#003366',
@@ -53,14 +63,10 @@ const STATE = {
  * ------------------------------------------------------------------
  * SEEDED PSEUDO-RANDOM NUMBER GENERATOR  (LCG)
  * ------------------------------------------------------------------
- * Replaces all Math.random() in road / traffic / sprite generation
- * so every run sees an identical road layout.
- * Usage: rng() returns a float in [0, 1).
  */
 function makeLCG(seed) {
     let s = seed >>> 0;
     return function () {
-        // Park–Miller parameters (Numerical Recipes)
         s = (Math.imul(1664525, s) + 1013904223) >>> 0;
         return s / 4294967296;
     };
@@ -86,12 +92,10 @@ class AudioController {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.ctx = new AudioContext();
 
-        // Engine Sound (Sawtooth for growl)
         this.engineOsc = this.ctx.createOscillator();
         this.engineOsc.type = 'sawtooth';
         this.engineOsc.frequency.value = 100;
 
-        // Engine Filter (Muffle it a bit)
         this.engineFilter = this.ctx.createBiquadFilter();
         this.engineFilter.type = 'lowpass';
         this.engineFilter.frequency.value = 400;
@@ -104,13 +108,10 @@ class AudioController {
         this.engineGain.connect(this.ctx.destination);
         this.engineOsc.start();
 
-        // Wind Noise (White Noise Buffer) — audio init only, Math.random OK here
         const bufferSize = 2 * this.ctx.sampleRate;
         const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
         const output = noiseBuffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-            output[i] = Math.random() * 2 - 1; // audio noise, not gameplay RNG
-        }
+        for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
 
         this.windNode = this.ctx.createBufferSource();
         this.windNode.buffer = noiseBuffer;
@@ -119,7 +120,6 @@ class AudioController {
         this.windGain = this.ctx.createGain();
         this.windGain.gain.value = 0;
 
-        // Wind Filter (Highpass)
         const windFilter = this.ctx.createBiquadFilter();
         windFilter.type = 'highpass';
         windFilter.frequency.value = 800;
@@ -138,11 +138,8 @@ class AudioController {
         const targetFreq = 80 + (r * 220);
         this.engineOsc.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.1);
         this.engineFilter.frequency.setTargetAtTime(400 + (r * 1000), this.ctx.currentTime, 0.1);
-        let engVol = 0.1 + (r * 0.2);
-        this.engineGain.gain.setTargetAtTime(engVol, this.ctx.currentTime, 0.1);
-        let windVol = 0;
-        if (r > 0.5) windVol = (r - 0.5) * 2 * 0.3;
-        this.windGain.gain.setTargetAtTime(windVol, this.ctx.currentTime, 0.1);
+        this.engineGain.gain.setTargetAtTime(0.1 + r * 0.2, this.ctx.currentTime, 0.1);
+        this.windGain.gain.setTargetAtTime(r > 0.5 ? (r - 0.5) * 2 * 0.3 : 0, this.ctx.currentTime, 0.1);
     }
 
     playCrash() {
@@ -151,7 +148,7 @@ class AudioController {
         const bufferSize = this.ctx.sampleRate * 2;
         const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1; // audio only
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
 
         const noise = this.ctx.createBufferSource();
         noise.buffer = buffer;
@@ -174,7 +171,6 @@ class AudioController {
         this.engineGain.gain.cancelScheduledValues(t);
         this.engineGain.gain.setValueAtTime(this.engineGain.gain.value, t);
         this.engineGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-
         this.windGain.gain.cancelScheduledValues(t);
         this.windGain.gain.setValueAtTime(this.windGain.gain.value, t);
         this.windGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
@@ -189,25 +185,18 @@ class AudioController {
  * ------------------------------------------------------------------
  * INPUT HANDLING
  * ------------------------------------------------------------------
- * Tracking-loss rule (PLAN §6):
- *   If no hand result for > 300 ms → show "Show your hand",
- *   treat input as "coast" (tilt=0, throttle=0, brake=0).
- *   Any key press overrides gesture input for that frame.
- *   Never crash or lose a life due to tracking loss.
  */
 class InputSystem {
     constructor() {
         this.keys = {};
         this.gesture = { tilt: 0, throttle: 0, brake: 0, active: false };
 
-        // Keyboard steering
         this.keyboardSteer = 0;
         this.steerSpeed = 0.25;
         this.steerReturn = 0.2;
 
-        // Tracking-loss detection
-        this.lastHandTime = 0;          // ms timestamp of last received hand result
-        this.TRACKING_TIMEOUT = 300;    // ms before we consider tracking lost
+        this.lastHandTime = 0;
+        this.TRACKING_TIMEOUT = 300;
 
         window.addEventListener('keydown', (e) => {
             this.keys[e.code] = true;
@@ -239,9 +228,8 @@ class InputSystem {
 
     startCamera() { return this.camera.start(); }
 
-    /** Returns true when tracking has been lost for > TRACKING_TIMEOUT ms */
     isTrackingLost() {
-        if (this.lastHandTime === 0) return false; // camera never saw a hand yet — not "lost"
+        if (this.lastHandTime === 0) return false;
         return (Date.now() - this.lastHandTime) > this.TRACKING_TIMEOUT;
     }
 
@@ -254,23 +242,18 @@ class InputSystem {
             const landmarks = results.multiHandLandmarks[0];
             drawConnectors(this.ctxPreview, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
             drawLandmarks(this.ctxPreview, landmarks, { color: '#FF0000', lineWidth: 1 });
-
             this.processGesture(landmarks);
             this.gesture.active = true;
             this.lastHandTime = Date.now();
-
-            const statusEl = document.getElementById('g-status');
-            if (statusEl) { statusEl.textContent = 'Tracking'; statusEl.style.color = '#00ff88'; }
+            const s = document.getElementById('g-status');
+            if (s) { s.textContent = 'Tracking'; s.style.color = '#00ff88'; }
         } else {
-            // Hand not detected in this frame — gesture goes passive but we
-            // rely on the timeout check rather than immediately deactivating.
             this.gesture.active = false;
             this.gesture.tilt *= 0.9;
             this.gesture.throttle = 0;
             this.gesture.brake = 0;
-
-            const statusEl = document.getElementById('g-status');
-            if (statusEl) { statusEl.textContent = 'No Hand'; statusEl.style.color = '#ff0055'; }
+            const s = document.getElementById('g-status');
+            if (s) { s.textContent = 'No Hand'; s.style.color = '#ff0055'; }
         }
         this.ctxPreview.restore();
     }
@@ -281,11 +264,9 @@ class InputSystem {
         const dx = middleBase.x - wrist.x;
         const dy = middleBase.y - wrist.y;
 
-        let angle = Math.atan2(dy, dx);
+        const angle = Math.atan2(dy, dx);
         const neutralAngle = -Math.PI / 2;
-        let tilt = (angle - neutralAngle);
-        const maxTilt = 0.8;
-        this.gesture.tilt = Math.max(-1, Math.min(1, tilt / maxTilt));
+        this.gesture.tilt = Math.max(-1, Math.min(1, (angle - neutralAngle) / 0.8));
         if (Math.abs(this.gesture.tilt) < 0.1) this.gesture.tilt = 0;
 
         const tiltEl = document.getElementById('g-tilt');
@@ -293,58 +274,39 @@ class InputSystem {
 
         const tips = [8, 12, 16, 20];
         const pips = [6, 10, 14, 18];
-        let extendedFingers = 0;
+        let extended = 0;
         for (let i = 0; i < 4; i++) {
-            const dTip = this.dist(wrist, landmarks[tips[i]]);
-            const dPip = this.dist(wrist, landmarks[pips[i]]);
-            if (dTip > dPip * 1.1) extendedFingers++;
+            if (this.dist(wrist, landmarks[tips[i]]) > this.dist(wrist, landmarks[pips[i]]) * 1.1) extended++;
         }
 
         let actionText = 'Coast';
-        if (extendedFingers >= 3) {
-            this.gesture.throttle = 1;
-            this.gesture.brake = 0;
-            actionText = 'ACCEL';
-        } else if (extendedFingers <= 1) {
-            this.gesture.throttle = 0;
-            this.gesture.brake = 1;
-            actionText = 'BRAKE';
-        } else {
-            this.gesture.throttle = 0;
-            this.gesture.brake = 0;
-        }
+        if (extended >= 3) { this.gesture.throttle = 1; this.gesture.brake = 0; actionText = 'ACCEL'; }
+        else if (extended <= 1) { this.gesture.throttle = 0; this.gesture.brake = 1; actionText = 'BRAKE'; }
+        else { this.gesture.throttle = 0; this.gesture.brake = 0; }
+
         const actionEl = document.getElementById('g-action');
         if (actionEl) actionEl.textContent = actionText;
     }
 
-    dist(p1, p2) { return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2)); }
+    dist(p1, p2) { return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2); }
 
-    /** Returns whether any game-relevant key is currently held. */
     anyKeyHeld() {
-        return !!(
-            this.keys['ArrowLeft'] || this.keys['KeyA'] ||
+        return !!(this.keys['ArrowLeft'] || this.keys['KeyA'] ||
             this.keys['ArrowRight'] || this.keys['KeyD'] ||
             this.keys['ArrowUp'] || this.keys['KeyW'] ||
-            this.keys['ArrowDown'] || this.keys['KeyS']
-        );
+            this.keys['ArrowDown'] || this.keys['KeyS']);
     }
 
     getCommand() {
         let cmd = { steer: 0, accel: 0, brake: 0 };
-
-        // Keyboard overrides gesture when any game key is pressed (PLAN §6).
         const keyOverride = this.anyKeyHeld();
-
-        // If tracking is lost (> 300 ms since last good result) AND no key held → coast.
         const trackingLost = this.isTrackingLost();
 
         if (!keyOverride && this.gesture.active && !trackingLost) {
-            // Normal gesture control
             cmd.steer = this.gesture.tilt;
             cmd.accel = this.gesture.throttle;
             cmd.brake = this.gesture.brake;
         } else {
-            // Keyboard path (also used when tracking is lost or gesture inactive)
             let targetSteer = 0;
             if (this.keys['ArrowLeft'] || this.keys['KeyA']) targetSteer = 1;
             if (this.keys['ArrowRight'] || this.keys['KeyD']) targetSteer = -1;
@@ -359,7 +321,6 @@ class InputSystem {
             cmd.steer = this.keyboardSteer;
             if (this.keys['ArrowUp'] || this.keys['KeyW']) cmd.accel = 1;
             if (this.keys['ArrowDown'] || this.keys['KeyS']) cmd.brake = 1;
-
             this.updateKeyHints();
         }
         return cmd;
@@ -368,15 +329,14 @@ class InputSystem {
     updateKeyHints() {
         const hint = document.getElementById('controls-hint');
         if (!hint) return;
-        const keys = hint.querySelectorAll('.key');
-        keys.forEach(key => {
-            const keyText = key.textContent;
-            let isActive = false;
-            if (keyText === 'W') isActive = !!(this.keys['KeyW'] || this.keys['ArrowUp']);
-            if (keyText === 'A') isActive = !!(this.keys['KeyA'] || this.keys['ArrowLeft']);
-            if (keyText === 'S') isActive = !!(this.keys['KeyS'] || this.keys['ArrowDown']);
-            if (keyText === 'D') isActive = !!(this.keys['KeyD'] || this.keys['ArrowRight']);
-            key.classList.toggle('active', isActive);
+        hint.querySelectorAll('.key').forEach(key => {
+            const k = key.textContent;
+            let active = false;
+            if (k === 'W') active = !!(this.keys['KeyW'] || this.keys['ArrowUp']);
+            if (k === 'A') active = !!(this.keys['KeyA'] || this.keys['ArrowLeft']);
+            if (k === 'S') active = !!(this.keys['KeyS'] || this.keys['ArrowDown']);
+            if (k === 'D') active = !!(this.keys['KeyD'] || this.keys['ArrowRight']);
+            key.classList.toggle('active', active);
         });
     }
 }
@@ -395,41 +355,25 @@ class ParticleSystem {
         this.maxParticles = 50;
     }
 
-    resize(width, height) {
-        this.width = width;
-        this.height = height;
-    }
+    resize(width, height) { this.width = width; this.height = height; }
 
     updateAndDraw(speedRatio) {
         if (speedRatio < 0.5) return;
-
         if (this.particles.length < this.maxParticles && Math.random() > 0.5) {
-            this.particles.push({
-                x: Math.random() * this.width,
-                y: Math.random() * this.height,
-                speed: 10 + Math.random() * 20
-            });
+            this.particles.push({ x: Math.random() * this.width, y: Math.random() * this.height, speed: 10 + Math.random() * 20 });
         }
-
-        this.ctx.strokeStyle = `rgba(255, 255, 255, ${speedRatio * 0.3})`;
+        this.ctx.strokeStyle = `rgba(255,255,255,${speedRatio * 0.3})`;
         this.ctx.lineWidth = 2;
         this.ctx.beginPath();
-
-        const centerX = this.width / 2;
-        const centerY = this.height / 2;
-
+        const cx = this.width / 2, cy = this.height / 2;
         for (let i = this.particles.length - 1; i >= 0; i--) {
-            let p = this.particles[i];
-            const dx = p.x - centerX;
-            const dy = p.y - centerY;
-            const angle = Math.atan2(dy, dx);
+            const p = this.particles[i];
+            const angle = Math.atan2(p.y - cy, p.x - cx);
             p.x += Math.cos(angle) * p.speed * speedRatio;
             p.y += Math.sin(angle) * p.speed * speedRatio;
             this.ctx.moveTo(p.x, p.y);
             this.ctx.lineTo(p.x - Math.cos(angle) * 20, p.y - Math.sin(angle) * 20);
-            if (p.x < 0 || p.x > this.width || p.y < 0 || p.y > this.height) {
-                this.particles.splice(i, 1);
-            }
+            if (p.x < 0 || p.x > this.width || p.y < 0 || p.y > this.height) this.particles.splice(i, 1);
         }
         this.ctx.stroke();
     }
@@ -453,8 +397,6 @@ class Utils {
     }
     static percentRemaining(n, total) { return (n % total) / total; }
     static interpolate(a, b, percent) { return a + (b - a) * percent; }
-
-    // Seeded helpers — caller passes the rng function
     static randomIntRng(rng, min, max) { return Math.floor(rng() * (max - min + 1)) + min; }
 }
 
@@ -476,12 +418,10 @@ class Game {
         this.audio = new AudioController();
         this.particles = new ParticleSystem(this.ctx, this.width, this.height);
 
-        // Single gameState variable replaces isPlaying / isGameOver / gameStarted
         this.gameState = STATE.MENU;
-
-        // Only one RAF loop may ever exist — guarded by this flag
         this.loopRunning = false;
 
+        // Race state
         this.position = 0;
         this.playerX = 0;
         this.speed = 0;
@@ -489,37 +429,34 @@ class Game {
         this.distanceRun = 0;
         this.segments = [];
 
-        // Mountain silhouette — pre-generated once to prevent per-frame flicker
+        // Phase 2 state
+        this.lives = CONFIG.START_LIVES;
+        this.coins = 0;
+        this.hitFlashUntil = 0;       // timestamp until red flash is shown
+        this.invulUntil = 0;          // brief invulnerability window after a hit
+
         this.mountainPoints = [];
-
         this.highScore = parseInt(localStorage.getItem('gestureRiderHighScore')) || 0;
-
-        // Seeded RNG — used exclusively for road/traffic/sprite generation
         this.rng = makeLCG(SEED);
 
         this.resetRoad();
         this._buildMountains();
 
-        // Tracking-loss overlay element (injected into DOM by index.html)
         this.trackingLostEl = document.getElementById('tracking-lost-msg');
 
         this.step = this.step.bind(this);
         this.lastTime = 0;
 
         document.getElementById('restart-btn').addEventListener('click', () => this.restart());
-
-        // Canvas resize
         window.addEventListener('resize', () => this._onResize());
     }
 
-    /** Pre-generate the mountain silhouette points (seeded, never changes). */
     _buildMountains() {
         this.mountainPoints = [];
-        const rng = makeLCG(SEED + 1); // separate sub-seed so road layout is unaffected
+        const rng = makeLCG(SEED + 1);
         for (let i = 0; i <= this.width; i += 50) {
             this.mountainPoints.push({ x: i, y: (this.height / 2) - 50 + rng() * 50 });
         }
-        // Ensure last point reaches the right edge
         this.mountainPoints.push({ x: this.width, y: this.height / 2 + 50 });
     }
 
@@ -529,16 +466,16 @@ class Game {
         this.canvas.width = this.width;
         this.canvas.height = this.height;
         this.particles.resize(this.width, this.height);
-        this._buildMountains(); // regenerate for new viewport size
+        this._buildMountains();
     }
 
     /**
-     * Reset race state and regenerate the road using the fixed seeded RNG.
-     * Resets the RNG to SEED each time so the road is always identical.
+     * Reset road using fixed seeded RNG.
+     * Phase 2 additions: crash-object sprites, coin lines.
      */
     resetRoad() {
         this.segments = [];
-        this.rng = makeLCG(SEED); // reset seed → deterministic road every run
+        this.rng = makeLCG(SEED);
         const TOTAL_SEGMENTS = 2000;
         for (let i = 0; i < TOTAL_SEGMENTS; i++) {
             const curve = (i > 100 && i < 300) ? 2 : (i > 500 && i < 700) ? -3 : (i > 1000 && i < 1200) ? 4 : (i > 1500 && i < 1700) ? -2 : 0;
@@ -547,49 +484,78 @@ class Game {
                 p1: { world: { y: 0, z: i * CONFIG.SEGMENT_LENGTH }, camera: {}, screen: {} },
                 p2: { world: { y: 0, z: (i + 1) * CONFIG.SEGMENT_LENGTH }, camera: {}, screen: {} },
                 color: Math.floor(i / 3) % 2 ? CONFIG.COLORS.ROAD_DARK : CONFIG.COLORS.ROAD_LIGHT,
-                curve: curve,
+                curve,
                 cars: [],
-                sprites: []
+                sprites: [],
+                coins: []
             });
 
+            // Traffic cars
             if (i > 20 && i % 40 === 0 && this.rng() > 0.3) {
                 const lanes = [-0.65, 0, 0.65];
                 this.addCar(i, lanes[Math.floor(this.rng() * lanes.length)], Utils.randomIntRng(this.rng, 3000, 8000));
             }
+
+            // Roadside trees
             if (i % 20 === 0 && this.rng() > 0.2) {
                 const side = this.rng() > 0.5 ? 1 : -1;
                 this.addSprite(i, side * (1.5 + this.rng()), 'tree');
+            }
+
+            // Crash barriers / cones — one every ~60 segments, never in first 30
+            if (i > 30 && i % 60 === 0 && this.rng() > 0.4) {
+                // Place in one of the three lanes (not perfectly centred — slight offset)
+                const lanes = [-0.65, 0, 0.65];
+                const lane = lanes[Math.floor(this.rng() * lanes.length)];
+                const type = this.rng() > 0.5 ? 'barrier' : 'cone';
+                this.addSprite(i, lane, type);
+            }
+
+            // Coin lines — short run of 3-5 coins in a lane
+            if (i > 10 && i % 30 === 0 && this.rng() > 0.5) {
+                const lanes = [-0.65, 0, 0.65];
+                const lane = lanes[Math.floor(this.rng() * lanes.length)];
+                const count = 3 + Math.floor(this.rng() * 3); // 3-5
+                for (let c = 0; c < count; c++) {
+                    // Space coins 1 segment apart in the same lane
+                    const targetSeg = i + c;
+                    if (targetSeg < TOTAL_SEGMENTS) {
+                        this.segments[targetSeg].coins.push({ offset: lane, collected: false });
+                    }
+                }
             }
         }
     }
 
     addCar(segmentIndex, offset, speed) {
         this.segments[segmentIndex].cars.push({
-            offset: offset,
+            offset,
             z: segmentIndex * CONFIG.SEGMENT_LENGTH,
-            speed: speed,
-            percent: 0,
+            speed,
             type: this.rng() > 0.5 ? 'car' : 'truck',
-            justPassed: false
+            hit: false,          // one-hit flag (Phase 2)
+            canHit: false        // becomes true once car is > threshold ahead (Phase 2)
         });
     }
 
     addSprite(segmentIndex, offset, type) {
-        this.segments[segmentIndex].sprites.push({ offset: offset, type: type });
+        this.segments[segmentIndex].sprites.push({
+            offset,
+            type,
+            hit: false   // one-hit flag (Phase 2)
+        });
     }
 
-    /** Called once from window.onload after camera is ready. Starts the single RAF loop. */
     start() {
         this.audio.init();
         this.gameState = STATE.RACING;
-        this.lastTime = performance.now(); // reset timestamp on first resume
+        this.lastTime = performance.now();
         if (!this.loopRunning) {
             this.loopRunning = true;
             requestAnimationFrame(this.step);
         }
     }
 
-    /** Restart after a crash — reuse the existing RAF loop, never start a second one. */
     restart() {
         document.getElementById('game-over-screen').classList.add('hidden');
         this.resetRoad();
@@ -598,19 +564,66 @@ class Game {
         this.distanceRun = 0;
         this.position = 0;
         this.playerX = 0;
-        this.lastTime = performance.now(); // reset dt timestamp on resume (PLAN §4)
+        this.lives = CONFIG.START_LIVES;
+        this.coins = 0;
+        this.hitFlashUntil = 0;
+        this.invulUntil = 0;
+        this.lastTime = performance.now();
         this.audio.resume();
         this.audio.update(0);
         this.gameState = STATE.RACING;
-        // No new requestAnimationFrame here — the existing loop picks up automatically
-        // because step() checks gameState, not a separate flag.
+    }
+
+    /**
+     * addScore — central scoring gate; clamps score at 0.
+     */
+    addScore(delta) {
+        this.score = Math.max(0, this.score + delta);
+    }
+
+    /**
+     * takeHit — one life lost, -2 coins, speed cut, flash. Called instead of crash().
+     * If lives reach 0, transitions to WASTED.
+     */
+    takeHit() {
+        if (this.gameState !== STATE.RACING) return;
+        if (Date.now() < this.invulUntil) return; // still in post-hit window
+
+        this.lives -= CONFIG.HIT_LIFE_COST;
+        this.coins = Math.max(0, this.coins - CONFIG.HIT_COIN_COST);
+        this.speed *= CONFIG.HIT_SPEED_FACTOR;
+        this.hitFlashUntil = Date.now() + CONFIG.HIT_FLASH_MS;
+        this.invulUntil = Date.now() + CONFIG.HIT_FLASH_MS; // same duration
+        this.audio.playCrash();
+        this._updateHUD();
+
+        if (this.lives <= 0) {
+            this.wasted();
+        }
+    }
+
+    /**
+     * wasted — transition to WASTED state (replaces old crash() game-end).
+     */
+    wasted() {
+        this.gameState = STATE.WASTED;
+        this.speed = 0;
+
+        if (this.score > this.highScore) {
+            this.highScore = Math.floor(this.score);
+            localStorage.setItem('gestureRiderHighScore', this.highScore);
+        }
+
+        document.getElementById('game-over-title').textContent = 'WASTED';
+        document.getElementById('final-score').textContent = Math.floor(this.score);
+        document.getElementById('final-coins').textContent = this.coins;
+        document.getElementById('best-score').textContent = this.highScore;
+        document.getElementById('game-over-screen').classList.remove('hidden');
     }
 
     update(dt) {
-        // Only RACING advances simulation (PLAN §4)
         if (this.gameState !== STATE.RACING) return;
 
-        // Tracking-loss overlay
         const trackingLost = this.input.isTrackingLost();
         if (this.trackingLostEl) {
             this.trackingLostEl.style.display = trackingLost ? 'flex' : 'none';
@@ -627,14 +640,14 @@ class Game {
         this.speed = Math.max(0, Math.min(this.speed, CONFIG.MAX_SPEED));
 
         const dx = dt * 2 * cmd.steer * (this.speed / CONFIG.MAX_SPEED);
-        this.playerX = this.playerX - dx;
+        this.playerX -= dx;
 
         const playerSegment = this.findSegment(this.position + CONFIG.CAMERA_DEPTH * CONFIG.SEGMENT_LENGTH);
-        this.playerX = this.playerX - (dx * playerSegment.curve * ratio * 0.1);
+        this.playerX -= dx * playerSegment.curve * ratio * 0.1;
 
         if ((this.playerX < -1 || this.playerX > 1) && this.speed > 2000) this.speed += CONFIG.OFF_ROAD_DECEL * dt * 60;
-
         this.playerX = Math.max(-2, Math.min(2, this.playerX));
+
         this.position += this.speed * dt;
         this.distanceRun += this.speed * dt;
 
@@ -642,37 +655,55 @@ class Game {
         if (this.position >= trackLength) this.position -= trackLength;
         if (this.position < 0) this.position += trackLength;
 
-        this.updateTraffic(dt, playerSegment);
+        this.updateTraffic(dt);
         this.checkSpriteCollisions();
+        this.checkCoinCollections();
 
-        // Update HUD
+        this._updateHUD();
+    }
+
+    _updateHUD() {
         document.getElementById('scoreVal').textContent = Math.floor(this.score);
         document.getElementById('distVal').textContent = (this.distanceRun / 100000).toFixed(1);
         document.getElementById('speedVal').textContent = Math.floor(this.speed / 100);
+        document.getElementById('livesVal').textContent = '❤️'.repeat(Math.max(0, this.lives));
+        document.getElementById('coinsVal').textContent = this.coins;
     }
 
+    /**
+     * checkSpriteCollisions — trees and crash objects.
+     * One-hit rule: once flagged hit, ignore until the obstacle is far behind.
+     */
     checkSpriteCollisions() {
+        if (Date.now() < this.invulUntil) return;
         const playerZ = this.position + CONFIG.CAMERA_HEIGHT;
         const trackLen = this.segments.length * CONFIG.SEGMENT_LENGTH;
-        const startSegIndex = Math.floor(playerZ / CONFIG.SEGMENT_LENGTH) % this.segments.length;
+        const startSeg = Math.floor(playerZ / CONFIG.SEGMENT_LENGTH) % this.segments.length;
 
         for (let i = -1; i <= 2; i++) {
-            const idx = (startSegIndex + i + this.segments.length) % this.segments.length;
+            const idx = (startSeg + i + this.segments.length) % this.segments.length;
             const segment = this.segments[idx];
 
             for (let j = 0; j < segment.sprites.length; j++) {
                 const sprite = segment.sprites[j];
-                const spriteZ = segment.p1.world.z;
+                // Trees are roadside — they don't block the road lanes; only barrier/cone do
+                if (sprite.type === 'tree') continue;
 
-                let dist = spriteZ - playerZ;
+                let dist = segment.p1.world.z - playerZ;
                 if (dist < -trackLen / 2) dist += trackLen;
                 if (dist > trackLen / 2) dist -= trackLen;
 
-                if (Math.abs(dist) < 100) {
-                    const spriteW = 0.3;
+                // Clear hit flag when obstacle is far behind (> 500 units)
+                if (dist < -500) sprite.hit = false;
+
+                if (sprite.hit) continue;
+
+                if (Math.abs(dist) < 150) {
+                    const objW = sprite.type === 'barrier' ? 0.5 : 0.2;
                     const playerW = 0.15;
-                    if (this.overlap(this.playerX, playerW, sprite.offset, spriteW)) {
-                        this.crash();
+                    if (this.overlap(this.playerX, playerW, sprite.offset, objW)) {
+                        sprite.hit = true;
+                        this.takeHit();
                         return;
                     }
                 }
@@ -680,102 +711,140 @@ class Game {
         }
     }
 
-    updateTraffic(dt, playerSegment) {
+    /**
+     * checkCoinCollections — collect coins on overlap.
+     * collected flag is permanent for this run; reset in resetRoad().
+     */
+    checkCoinCollections() {
+        const playerZ = this.position + CONFIG.CAMERA_HEIGHT;
+        const trackLen = this.segments.length * CONFIG.SEGMENT_LENGTH;
+        const startSeg = Math.floor(playerZ / CONFIG.SEGMENT_LENGTH) % this.segments.length;
+
+        for (let i = -1; i <= 2; i++) {
+            const idx = (startSeg + i + this.segments.length) % this.segments.length;
+            const segment = this.segments[idx];
+
+            for (let j = 0; j < segment.coins.length; j++) {
+                const coin = segment.coins[j];
+                if (coin.collected) continue;
+
+                let dist = segment.p1.world.z - playerZ;
+                if (dist < -trackLen / 2) dist += trackLen;
+                if (dist > trackLen / 2) dist -= trackLen;
+
+                if (Math.abs(dist) < 120) {
+                    const coinW = 0.18;
+                    const playerW = 0.2;
+                    if (this.overlap(this.playerX, playerW, coin.offset, coinW)) {
+                        coin.collected = true;
+                        this.coins++;
+                        this.addScore(CONFIG.COIN_SCORE);
+                        this._showFloatMsg(`+${CONFIG.COIN_SCORE}`, '#ffd700');
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * updateTraffic — Phase 2 rules:
+     *  • car.canHit starts false; becomes true once car is > threshold AHEAD of player.
+     *  • car.hit (one-hit): set on collision, cleared when car is far behind.
+     *  • Distance-based score accumulation removed (PLAN §6).
+     */
+    updateTraffic(dt) {
         const carsToMove = [];
         const playerZ = this.position + CONFIG.CAMERA_HEIGHT;
         const trackLen = this.segments.length * CONFIG.SEGMENT_LENGTH;
 
         for (let i = 0; i < this.segments.length; i++) {
-            let segment = this.segments[i];
+            const segment = this.segments[i];
             for (let j = 0; j < segment.cars.length; j++) {
-                let car = segment.cars[j];
+                const car = segment.cars[j];
                 car.z += car.speed * dt;
                 if (car.z > trackLen) car.z -= trackLen;
                 if (car.z < 0) car.z += trackLen;
 
-                let currentSegmentIndex = i;
-                let actualSegmentIndex = Math.floor(car.z / CONFIG.SEGMENT_LENGTH) % this.segments.length;
-                if (currentSegmentIndex !== actualSegmentIndex) {
-                    carsToMove.push({ car: car, from: currentSegmentIndex, to: actualSegmentIndex });
-                }
+                const actualSeg = Math.floor(car.z / CONFIG.SEGMENT_LENGTH) % this.segments.length;
+                if (i !== actualSeg) carsToMove.push({ car, from: i, to: actualSeg });
 
-                let dist = car.z - playerZ;
+                let dist = car.z - playerZ; // positive = car is ahead of player
                 if (dist < -trackLen / 2) dist += trackLen;
                 if (dist > trackLen / 2) dist -= trackLen;
 
+                // Grant hit-permission only when car is sufficiently ahead
+                if (dist > CONFIG.CAR_HIT_AHEAD_THRESHOLD) car.canHit = true;
+                // Reset when car has passed far behind
+                if (dist < -CONFIG.CAR_HIT_AHEAD_THRESHOLD) { car.canHit = false; car.hit = false; }
+
+                if (!car.canHit) continue;
+                if (car.hit) continue;
+                if (Date.now() < this.invulUntil) continue;
+
                 if (Math.abs(dist) < 200) {
-                    const carW = 0.45;
-                    const playerW = 0.15;
+                    const carW = 0.45, playerW = 0.15;
                     if (this.overlap(this.playerX, playerW, car.offset, carW)) {
-                        this.crash();
+                        car.hit = true;
+                        this.takeHit();
                     }
                 }
             }
         }
 
-        for (let move of carsToMove) {
-            const fromSeg = this.segments[move.from];
-            const toSeg = this.segments[move.to];
-            const index = fromSeg.cars.indexOf(move.car);
-            if (index > -1) {
-                fromSeg.cars.splice(index, 1);
-                toSeg.cars.push(move.car);
-            }
+        for (const move of carsToMove) {
+            const from = this.segments[move.from];
+            const to = this.segments[move.to];
+            const idx = from.cars.indexOf(move.car);
+            if (idx > -1) { from.cars.splice(idx, 1); to.cars.push(move.car); }
         }
-
-        if (this.speed > 0) this.score += (this.speed / 1000) * dt * 10;
     }
 
     overlap(x1, w1, x2, w2) {
-        const half1 = w1 / 2; const half2 = w2 / 2;
-        const min1 = x1 - half1; const max1 = x1 + half1;
-        const min2 = x2 - half2; const max2 = x2 + half2;
-        return !((max1 < min2) || (min1 > max2));
-    }
-
-    crash() {
-        if (this.gameState !== STATE.RACING) return; // guard double-trigger
-        this.speed = 0;
-        this.gameState = STATE.WASTED;
-        this.audio.playCrash();
-
-        if (this.score > this.highScore) {
-            this.highScore = Math.floor(this.score);
-            localStorage.setItem('gestureRiderHighScore', this.highScore);
-        }
-
-        document.getElementById('final-score').textContent = Math.floor(this.score);
-        document.getElementById('best-score').textContent = this.highScore;
-        document.getElementById('game-over-screen').classList.remove('hidden');
+        return !((x1 + w1 / 2 < x2 - w2 / 2) || (x1 - w1 / 2 > x2 + w2 / 2));
     }
 
     findSegment(z) {
         return this.segments[Math.floor(z / CONFIG.SEGMENT_LENGTH) % this.segments.length];
     }
 
+    _showFloatMsg(text, color) {
+        const area = document.getElementById('message-area');
+        if (!area) return;
+        const msg = document.createElement('div');
+        msg.className = 'float-msg';
+        msg.style.color = color || '';
+        msg.textContent = text;
+        area.appendChild(msg);
+        setTimeout(() => { if (msg.parentNode) msg.parentNode.removeChild(msg); }, 1200);
+    }
+
+    // ----------------------------------------------------------------
+    // RENDER
+    // ----------------------------------------------------------------
+
     render() {
         this.ctx.clearRect(0, 0, this.width, this.height);
         this.renderBackground();
 
-        let baseSegment = this.findSegment(this.position);
-        let basePercent = Utils.percentRemaining(this.position, CONFIG.SEGMENT_LENGTH);
+        const baseSegment = this.findSegment(this.position);
+        const basePercent = Utils.percentRemaining(this.position, CONFIG.SEGMENT_LENGTH);
 
-        let playerSegment = this.findSegment(this.position + CONFIG.CAMERA_DEPTH * CONFIG.SEGMENT_LENGTH);
-        let playerPercent = Utils.percentRemaining(this.position + CONFIG.CAMERA_DEPTH * CONFIG.SEGMENT_LENGTH, CONFIG.SEGMENT_LENGTH);
-        let playerY = Utils.interpolate(playerSegment.p1.world.y, playerSegment.p2.world.y, playerPercent);
+        const playerSegment = this.findSegment(this.position + CONFIG.CAMERA_DEPTH * CONFIG.SEGMENT_LENGTH);
+        const playerPercent = Utils.percentRemaining(this.position + CONFIG.CAMERA_DEPTH * CONFIG.SEGMENT_LENGTH, CONFIG.SEGMENT_LENGTH);
+        const playerY = Utils.interpolate(playerSegment.p1.world.y, playerSegment.p2.world.y, playerPercent);
 
         let dx = -(baseSegment.curve * basePercent);
         let x = 0;
         let maxY = this.height;
 
         for (let n = 0; n < CONFIG.DRAW_DISTANCE; n++) {
-            let segment = this.segments[(baseSegment.index + n) % this.segments.length];
+            const segment = this.segments[(baseSegment.index + n) % this.segments.length];
             segment.looped = segment.index < baseSegment.index;
             x += dx; dx += segment.curve;
-            let segmentLoopOffset = segment.looped ? this.segments.length * CONFIG.SEGMENT_LENGTH : 0;
+            const loopOffset = segment.looped ? this.segments.length * CONFIG.SEGMENT_LENGTH : 0;
 
-            Utils.project(segment.p1, (this.playerX * CONFIG.ROAD_WIDTH) - x, playerY + CONFIG.CAMERA_HEIGHT, this.position - segmentLoopOffset, CONFIG.CAMERA_DEPTH, this.width, this.height, CONFIG.ROAD_WIDTH);
-            Utils.project(segment.p2, (this.playerX * CONFIG.ROAD_WIDTH) - x - dx, playerY + CONFIG.CAMERA_HEIGHT, this.position - segmentLoopOffset, CONFIG.CAMERA_DEPTH, this.width, this.height, CONFIG.ROAD_WIDTH);
+            Utils.project(segment.p1, (this.playerX * CONFIG.ROAD_WIDTH) - x, playerY + CONFIG.CAMERA_HEIGHT, this.position - loopOffset, CONFIG.CAMERA_DEPTH, this.width, this.height, CONFIG.ROAD_WIDTH);
+            Utils.project(segment.p2, (this.playerX * CONFIG.ROAD_WIDTH) - x - dx, playerY + CONFIG.CAMERA_HEIGHT, this.position - loopOffset, CONFIG.CAMERA_DEPTH, this.width, this.height, CONFIG.ROAD_WIDTH);
 
             if (segment.p1.camera.z <= CONFIG.CAMERA_DEPTH || segment.p2.screen.y >= maxY || segment.p2.screen.y >= segment.p1.screen.y) continue;
 
@@ -784,61 +853,62 @@ class Game {
             segment.clipY = maxY;
         }
 
+        // Back-to-front: sprites, cars, coins
         for (let n = CONFIG.DRAW_DISTANCE - 1; n > 0; n--) {
-            let segment = this.segments[(baseSegment.index + n) % this.segments.length];
+            const segment = this.segments[(baseSegment.index + n) % this.segments.length];
 
-            for (let i = 0; i < segment.cars.length; i++) {
-                let car = segment.cars[i];
-                let spriteScale = segment.p1.screen.w;
-                if (spriteScale > 5) {
-                    let spriteX = segment.p1.screen.x + (segment.p1.screen.w * car.offset);
-                    let spriteY = segment.p1.screen.y;
-                    this.renderCar(spriteX, spriteY, spriteScale, car);
-                }
+            for (const car of segment.cars) {
+                const scale = segment.p1.screen.w;
+                if (scale > 5) this.renderCar(segment.p1.screen.x + scale * car.offset, segment.p1.screen.y, scale, car);
             }
 
-            for (let i = 0; i < segment.sprites.length; i++) {
-                let sprite = segment.sprites[i];
-                let spriteScale = segment.p1.screen.w;
-                if (spriteScale > 5) {
-                    let spriteX = segment.p1.screen.x + (segment.p1.screen.w * sprite.offset);
-                    let spriteY = segment.p1.screen.y;
-                    this.renderSprite(spriteX, spriteY, spriteScale, sprite.type);
-                }
+            for (const sprite of segment.sprites) {
+                const scale = segment.p1.screen.w;
+                if (scale > 5) this.renderSprite(segment.p1.screen.x + scale * sprite.offset, segment.p1.screen.y, scale, sprite.type);
+            }
+
+            for (const coin of segment.coins) {
+                if (coin.collected) continue;
+                const scale = segment.p1.screen.w;
+                if (scale > 5) this.renderCoin(segment.p1.screen.x + scale * coin.offset, segment.p1.screen.y, scale);
             }
         }
 
         this.particles.updateAndDraw(this.speed / CONFIG.MAX_SPEED);
         this.renderCockpit();
+
+        // Red flash overlay on hit
+        if (Date.now() < this.hitFlashUntil) {
+            const alpha = (this.hitFlashUntil - Date.now()) / CONFIG.HIT_FLASH_MS * 0.45;
+            this.ctx.fillStyle = `rgba(255,0,0,${alpha})`;
+            this.ctx.fillRect(0, 0, this.width, this.height);
+        }
     }
 
     renderBackground() {
-        let grad = this.ctx.createLinearGradient(0, 0, 0, this.height);
+        const grad = this.ctx.createLinearGradient(0, 0, 0, this.height);
         grad.addColorStop(0, CONFIG.COLORS.SKY_TOP);
         grad.addColorStop(1, CONFIG.COLORS.SKY_BOTTOM);
         this.ctx.fillStyle = grad;
         this.ctx.fillRect(0, 0, this.width, this.height);
 
-        // Sun
-        this.ctx.fillStyle = 'rgba(255, 200, 100, 0.2)';
+        this.ctx.fillStyle = 'rgba(255,200,100,0.2)';
         this.ctx.beginPath();
         this.ctx.arc(this.width * 0.8, this.height * 0.2, 80, 0, Math.PI * 2);
         this.ctx.fill();
 
-        // Mountains — use pre-generated points (no per-frame Math.random → no flicker)
+        // Mountains — pre-generated points (no per-frame RNG → no flicker)
         this.ctx.fillStyle = '#051020';
         this.ctx.beginPath();
         this.ctx.moveTo(0, this.height / 2 + 50);
-        for (let i = 0; i < this.mountainPoints.length - 1; i++) {
-            this.ctx.lineTo(this.mountainPoints[i].x, this.mountainPoints[i].y);
-        }
+        for (const pt of this.mountainPoints) this.ctx.lineTo(pt.x, pt.y);
         this.ctx.lineTo(this.width, this.height / 2 + 50);
         this.ctx.fill();
     }
 
     renderSegment(segment) {
-        let x1 = segment.p1.screen.x; let y1 = segment.p1.screen.y; let w1 = segment.p1.screen.w;
-        let x2 = segment.p2.screen.x; let y2 = segment.p2.screen.y; let w2 = segment.p2.screen.w;
+        const x1 = segment.p1.screen.x, y1 = segment.p1.screen.y, w1 = segment.p1.screen.w;
+        const x2 = segment.p2.screen.x, y2 = segment.p2.screen.y, w2 = segment.p2.screen.w;
 
         this.ctx.fillStyle = (Math.floor(segment.index / 3) % 2) ? CONFIG.COLORS.GRASS_DARK : CONFIG.COLORS.GRASS_LIGHT;
         this.ctx.fillRect(0, y2, this.width, y1 - y2);
@@ -849,36 +919,102 @@ class Game {
         this.ctx.lineTo(x2 + w2, y2); this.ctx.lineTo(x1 + w1, y1);
         this.ctx.fill();
 
-        let r1 = w1 / Math.max(6, 2 * CONFIG.LANES); let r2 = w2 / Math.max(6, 2 * CONFIG.LANES);
+        const r1 = w1 / Math.max(6, 2 * CONFIG.LANES);
+        const r2 = w2 / Math.max(6, 2 * CONFIG.LANES);
         this.ctx.fillStyle = (Math.floor(segment.index / 2) % 2) ? '#fff' : CONFIG.COLORS.RUMBLE;
         this.ctx.beginPath(); this.ctx.moveTo(x1 - w1 - r1, y1); this.ctx.lineTo(x1 - w1, y1); this.ctx.lineTo(x2 - w2, y2); this.ctx.lineTo(x2 - w2 - r2, y2); this.ctx.fill();
         this.ctx.beginPath(); this.ctx.moveTo(x1 + w1 + r1, y1); this.ctx.lineTo(x1 + w1, y1); this.ctx.lineTo(x2 + w2, y2); this.ctx.lineTo(x2 + w2 + r2, y2); this.ctx.fill();
 
         if (Math.floor(segment.index / 2) % 2) {
-            let l1 = w1 / 40; let l2 = w2 / 40;
+            const l1 = w1 / 40, l2 = w2 / 40;
             this.ctx.fillStyle = CONFIG.COLORS.LANE_MARKER;
-            let lanex1 = x1 - w1 * 0.33; let lanex2 = x2 - w2 * 0.33;
-            this.ctx.beginPath(); this.ctx.moveTo(lanex1 - l1, y1); this.ctx.lineTo(lanex1 + l1, y1); this.ctx.lineTo(lanex2 + l2, y2); this.ctx.lineTo(lanex2 - l2, y2); this.ctx.fill();
-            lanex1 = x1 + w1 * 0.33; lanex2 = x2 + w2 * 0.33;
-            this.ctx.beginPath(); this.ctx.moveTo(lanex1 - l1, y1); this.ctx.lineTo(lanex1 + l1, y1); this.ctx.lineTo(lanex2 + l2, y2); this.ctx.lineTo(lanex2 - l2, y2); this.ctx.fill();
+            let lx1 = x1 - w1 * 0.33, lx2 = x2 - w2 * 0.33;
+            this.ctx.beginPath(); this.ctx.moveTo(lx1 - l1, y1); this.ctx.lineTo(lx1 + l1, y1); this.ctx.lineTo(lx2 + l2, y2); this.ctx.lineTo(lx2 - l2, y2); this.ctx.fill();
+            lx1 = x1 + w1 * 0.33; lx2 = x2 + w2 * 0.33;
+            this.ctx.beginPath(); this.ctx.moveTo(lx1 - l1, y1); this.ctx.lineTo(lx1 + l1, y1); this.ctx.lineTo(lx2 + l2, y2); this.ctx.lineTo(lx2 - l2, y2); this.ctx.fill();
         }
     }
 
     renderSprite(x, y, scale, type) {
         if (scale <= 0) return;
-        const w = scale * 0.5; const h = scale * 1.5;
+        const w = scale * 0.5, h = scale * 1.5;
+
         if (type === 'tree') {
             this.ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
             this.ctx.fillRect(x - w * 0.2, y - h, w * 0.4, h);
             this.ctx.fillStyle = CONFIG.COLORS.TREE_LEAVES;
             this.ctx.beginPath(); this.ctx.moveTo(x - w, y - h * 0.5); this.ctx.lineTo(x, y - h * 1.5); this.ctx.lineTo(x + w, y - h * 0.5); this.ctx.fill();
             this.ctx.beginPath(); this.ctx.moveTo(x - w * 0.8, y - h); this.ctx.lineTo(x, y - h * 1.8); this.ctx.lineTo(x + w * 0.8, y - h); this.ctx.fill();
+        } else if (type === 'barrier') {
+            // Orange/white striped road barrier
+            const bw = scale * 0.55, bh = scale * 0.35;
+            // Main body — alternating stripes
+            for (let s = 0; s < 4; s++) {
+                this.ctx.fillStyle = s % 2 === 0 ? '#ff6600' : '#ffffff';
+                this.ctx.fillRect(x - bw / 2 + s * bw / 4, y - bh, bw / 4, bh);
+            }
+            // Dark outline
+            this.ctx.strokeStyle = '#222';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x - bw / 2, y - bh, bw, bh);
+            // Top cap
+            this.ctx.fillStyle = '#cc4400';
+            this.ctx.fillRect(x - bw / 2 - 2, y - bh - 4, bw + 4, 5);
+        } else if (type === 'cone') {
+            // Orange traffic cone
+            const ch = scale * 0.8, cw = scale * 0.25;
+            // Cone body
+            this.ctx.fillStyle = '#ff6600';
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, y - ch);
+            this.ctx.lineTo(x - cw, y);
+            this.ctx.lineTo(x + cw, y);
+            this.ctx.closePath();
+            this.ctx.fill();
+            // White band
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.beginPath();
+            const bandY = y - ch * 0.35;
+            const bandW = cw * 0.65;
+            this.ctx.moveTo(x - bandW, bandY);
+            this.ctx.lineTo(x + bandW, bandY);
+            this.ctx.lineTo(x + bandW * 1.1, bandY + ch * 0.12);
+            this.ctx.lineTo(x - bandW * 1.1, bandY + ch * 0.12);
+            this.ctx.closePath();
+            this.ctx.fill();
+            // Base
+            this.ctx.fillStyle = '#333';
+            this.ctx.fillRect(x - cw * 1.1, y - 3, cw * 2.2, 4);
         }
+    }
+
+    /**
+     * renderCoin — yellow circle with $ symbol, perspective-scaled.
+     */
+    renderCoin(x, y, scale) {
+        if (scale <= 0) return;
+        const r = Math.max(4, scale * 0.12);
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.arc(x, y - r * 1.5, r, 0, Math.PI * 2);
+        this.ctx.fillStyle = '#ffd700';
+        this.ctx.fill();
+        this.ctx.strokeStyle = '#b8860b';
+        this.ctx.lineWidth = Math.max(1, r * 0.15);
+        this.ctx.stroke();
+        if (r > 8) {
+            this.ctx.fillStyle = '#b8860b';
+            this.ctx.font = `bold ${Math.floor(r)}px sans-serif`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('$', x, y - r * 1.5);
+        }
+        this.ctx.restore();
     }
 
     renderCar(x, y, scale, car) {
         if (scale <= 0) return;
-        const w = scale * 0.5; const h = scale * 0.4;
+        const w = scale * 0.5, h = scale * 0.4;
         this.ctx.fillStyle = car.type === 'truck' ? '#334455' : '#882222';
         this.ctx.fillRect(x - w / 2, y - h, w, h);
         this.ctx.fillStyle = '#111';
@@ -894,9 +1030,7 @@ class Game {
     }
 
     renderCockpit() {
-        const cx = this.width / 2;
-        const cy = this.height;
-        // Speed-proportional shake uses Math.random (visual only, not gameplay)
+        const cx = this.width / 2, cy = this.height;
         const shakeX = (Math.random() - 0.5) * (this.speed / CONFIG.MAX_SPEED) * 5;
         const shakeY = (Math.random() - 0.5) * (this.speed / CONFIG.MAX_SPEED) * 5;
         const lean = this.input.gesture.active
@@ -908,7 +1042,7 @@ class Game {
         this.ctx.rotate(lean * 0.002);
 
         this.ctx.beginPath();
-        this.ctx.fillStyle = 'rgba(0, 50, 50, 0.2)';
+        this.ctx.fillStyle = 'rgba(0,50,50,0.2)';
         this.ctx.arc(0, 0, 400, Math.PI, 0);
         this.ctx.fill();
 
@@ -938,19 +1072,12 @@ class Game {
     }
 
     /**
-     * The one and only RAF callback.
-     * Delta time is clamped to 50 ms (0.05 s) to prevent physics explosions
-     * after tab-switch or slow frames (PLAN §4).
+     * The one and only RAF callback. dt clamped to 0.05 s.
      */
     step(now) {
-        // Always schedule next frame — loop never stops once started.
         requestAnimationFrame(this.step);
-
-        // Clamp dt: max 50 ms (PLAN §4)
         const dt = Math.min(0.05, (now - this.lastTime) / 1000);
         this.lastTime = now;
-
-        // Only update physics when RACING; render every frame so menu/wasted screens look alive.
         this.update(dt);
         this.render();
     }
@@ -967,20 +1094,16 @@ window.onload = () => {
     const overlay = document.getElementById('overlay-screen');
     const game = new Game();
 
-    // gameState starts as MENU — no wave-to-start/restart behaviour (removed per PLAN §2.7)
-
     const startGame = () => {
         if (game.gameState !== STATE.MENU) return;
         overlay.classList.add('hidden');
-        game.start(); // transitions to RACING and starts single RAF loop
+        game.start();
     };
 
-    // Camera init
     (async () => {
         startBtn.disabled = true;
         startBtn.textContent = 'Loading Camera...';
         loadingMsg.textContent = 'Initializing hand tracking...';
-
         try {
             await game.input.startCamera();
             startBtn.disabled = false;

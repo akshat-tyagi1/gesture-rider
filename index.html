@@ -21,29 +21,6 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="styles.css">
-
-    <style>
-        /* Tracking-loss warning overlay */
-        #tracking-lost-msg {
-            display: none;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.75);
-            color: #ffcc00;
-            font-family: 'Inter', sans-serif;
-            font-size: 1.4rem;
-            font-weight: 700;
-            padding: 0.75rem 1.5rem;
-            border-radius: 8px;
-            border: 2px solid #ffcc00;
-            z-index: 999;
-            pointer-events: none;
-            align-items: center;
-            gap: 0.5rem;
-        }
-    </style>
 </head>
 <body>
 
@@ -54,10 +31,11 @@
     <video id="input_video" style="display:none"></video>
     <canvas id="webcam-preview"></canvas>
 
-    <!-- Tracking-loss warning (shown when hand absent > 300 ms during RACING) -->
+    <!-- Tracking-loss warning -->
     <div id="tracking-lost-msg">✋ Show your hand</div>
 
     <div id="ui-layer">
+        <!-- Top HUD row: Score | Distance | Speed -->
         <div class="hud-top">
             <div class="score-box">
                 <span class="score-label">Score</span>
@@ -75,20 +53,30 @@
             </div>
         </div>
 
+        <!-- Lives & Coins row -->
+        <div class="hud-lives-row">
+            <div class="hud-pill" id="lives-pill">
+                <span class="hud-pill-label">Lives</span>
+                <span id="livesVal" class="hud-pill-val">❤️❤️❤️</span>
+            </div>
+            <div class="hud-pill" id="coins-pill">
+                <span class="hud-pill-label">🪙 Coins</span>
+                <span id="coinsVal" class="hud-pill-val">0</span>
+            </div>
+        </div>
+
         <div id="message-area"></div>
 
-        <!-- Debug Info for Gestures -->
+        <!-- Gesture debug -->
         <div id="gesture-state">
             <div class="state-row"><span>Status</span> <span id="g-status" class="val">No Hand</span></div>
             <div class="state-row"><span>Tilt</span> <span id="g-tilt" class="val">0°</span></div>
             <div class="state-row"><span>Action</span> <span id="g-action" class="val">Idle</span></div>
         </div>
 
-        <!-- Keyboard Controls Indicator -->
+        <!-- Keyboard Controls -->
         <div id="controls-hint">
-            <div class="key-row">
-                <span class="key">W</span>
-            </div>
+            <div class="key-row"><span class="key">W</span></div>
             <div class="key-row">
                 <span class="key">A</span>
                 <span class="key">S</span>
@@ -97,13 +85,16 @@
         </div>
     </div>
 
+    <!-- Game-over / WASTED screen -->
     <div id="game-over-screen" class="hidden">
-        <div class="crash-title">CRASHED</div>
-        <div class="final-score">Your Score: <span id="final-score">0</span></div>
+        <div class="crash-title" id="game-over-title">WASTED</div>
+        <div class="final-score">Score: <span id="final-score">0</span></div>
+        <div class="final-coins">🪙 Coins: <span id="final-coins">0</span></div>
         <div class="high-score-display">Best: <span id="best-score">0</span></div>
         <button id="restart-btn" class="btn">TRY AGAIN</button>
     </div>
 
+    <!-- Main menu -->
     <div id="overlay-screen">
         <h1>GESTURE RIDER</h1>
         <h2>AI Powered Highway Experience</h2>

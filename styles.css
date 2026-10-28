@@ -498,6 +498,84 @@ h2 {
 
 .hidden { display: none !important; }
 
+/* Tracking-loss warning overlay */
+#tracking-lost-msg {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.75);
+    color: #ffcc00;
+    font-family: 'Inter', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    border: 2px solid #ffcc00;
+    z-index: 999;
+    pointer-events: none;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Lives & Coins HUD row */
+.hud-lives-row {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    padding: 0 32px 8px;
+    pointer-events: none;
+}
+
+.hud-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 8px 20px;
+    border-radius: 50px;
+    border: 1px solid var(--ui-border);
+}
+
+.hud-pill-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.hud-pill-val {
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+#lives-pill .hud-pill-val {
+    font-size: 16px;   /* emoji hearts look better slightly smaller */
+    letter-spacing: 2px;
+}
+
+#coins-pill .hud-pill-val {
+    color: var(--bonus);
+}
+
+/* Final coins on game-over screen */
+.final-coins {
+    font-size: 24px;
+    font-weight: 400;
+    margin: 0 0 12px 0;
+    color: var(--bonus);
+}
+
+.final-coins span {
+    font-weight: 700;
+}
+
 #loading-msg {
     color: var(--text-secondary);
     margin-top: 16px;
