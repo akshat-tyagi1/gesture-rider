@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gesture Rider — Sprite Engine Test Bench</title>
+  <style>
+    :root {
+      --bg-asphalt: #22252c;
+      --bg-asphalt-light: #2d313a;
+      --bg-card: #181a20;
+      --border-card: #373b45;
+      --text-main: #dedad0;
+      --text-muted: #959aa6;
+      --accent-yellow: #f5b700;
+      --accent-yellow-dim: #997300;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --canvas-asphalt: #333742;
+      --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-asphalt);
+      color: var(--text-main);
+      font-family: var(--font-stack);
+      padding: 1.5rem;
+      min-height: 100vh;
+      line-height: 1.4;
+    }
+
+    header {
+      max-width: 1300px;
+      margin: 0 auto 1.5rem auto;
+      border-bottom: 2px solid var(--border-card);
+      padding-bottom: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 1rem;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #fff;
+    }
+
+    h1 span {
+      color: var(--accent-yellow);
+    }
+
+    .subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .badge-bar {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge.pass {
+      border-color: rgba(16, 185, 129, 0.4);
+      color: var(--accent-green);
+    }
+
+    .badge.fail {
+      border-color: rgba(239, 68, 68, 0.4);
+      color: var(--accent-red);
+    }
+
+    .badge.yellow {
+      border-color: rgba(245, 183, 0, 0.4);
+      color: var(--accent-yellow);
+    }
+
+    main {
+      max-width: 1300px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .section-title {
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-yellow);
+      border-left: 3px solid var(--accent-yellow);
+      padding-left: 0.6rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .section-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: -0.4rem;
+      margin-bottom: 1rem;
+    }
+
+    .sprite-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .sprite-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 6px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-bottom: 0.4rem;
+    }
+
+    .sprite-name {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
+      font-family: monospace;
+    }
+
+    .sprite-type-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      background: var(--canvas-asphalt);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      image-rendering: pixelated;
+    }
+
+    .scales-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.5rem;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .scale-stat {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .scale-stat strong {
+      color: var(--text-main);
+    }
+
+    .scale-stat .calls-tag {
+      color: var(--accent-green);
+      font-weight: bold;
+    }
+
+    .interactive-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 6px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      align-items: center;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.85rem;
+    }
+
+    label {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    select, input[type="range"] {
+      background: var(--bg-asphalt-light);
+      color: #fff;
+      border: 1px solid var(--border-card);
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    select:focus, input[type="range"]:focus {
+      outline: none;
+      border-color: var(--accent-yellow);
+    }
+
+    .interactive-canvas-wrap {
+      background: var(--canvas-asphalt);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      position: relative;
+    }
+
+    #interactiveCanvas {
+      width: 100%;
+      height: 380px;
+    }
+
+    .highway-preview-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 6px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    #highwayCanvas {
+      width: 100%;
+      height: 400px;
+      background: #191c22;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+    }
+
+    footer {
+      max-width: 1300px;
+      margin: 2rem auto 0 auto;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-card);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>Gesture Rider <span>// Sprites Test Bench</span></h1>
+      <div class="subtitle">Gritty urban roadside scenery & traffic canvas renderer &bull; Zero images &bull; Strict &lt; 15 draw call budget</div>
+    </div>
+    <div class="badge-bar" id="suiteBadges">
+      <div class="badge yellow">Initializing tests...</div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- SECTION 1: SCENERY TYPES -->
+    <section>
+      <div class="section-title">
+        <span>Roadside Scenery (6 Types @ Scales 20, 80, 250)</span>
+      </div>
+      <div class="section-desc">
+        Concrete blocks 2-4x scale tall with lit yellow windows, streetlights with pale ambient cast, billboards with yellow perimeter edges, and concrete Jersey barriers.
+      </div>
+      <div class="sprite-grid" id="sceneryGrid"></div>
+    </section>
+
+    <!-- SECTION 2: CAR / TRAFFIC TYPES -->
+    <section>
+      <div class="section-title">
+        <span>Traffic Vehicles (4 Types @ Scales 20, 80, 250)</span>
+      </div>
+      <div class="section-desc">
+        Rear view perspective, scale*0.5 body width, dark rear windows, dual red tail lights with subtle shadow glow.
+      </div>
+      <div class="sprite-grid" id="carsGrid"></div>
+    </section>
+
+    <!-- SECTION 3: INTERACTIVE INSPECTION -->
+    <section>
+      <div class="section-title">
+        <span>Interactive Inspection Bench</span>
+      </div>
+      <div class="interactive-panel">
+        <div class="controls-row">
+          <div class="control-group">
+            <label for="typeSelect">Sprite:</label>
+            <select id="typeSelect"></select>
+          </div>
+          <div class="control-group">
+            <label for="scaleSlider">Scale (<span id="scaleValueDisplay">120</span>px):</label>
+            <input type="range" id="scaleSlider" min="10" max="300" value="120" step="2">
+          </div>
+          <div class="control-group">
+            <label><input type="checkbox" id="showGroundCheck" checked> Show Ground & Center Axis</label>
+          </div>
+          <div class="badge-bar" style="margin-left: auto;">
+            <div class="badge pass" id="benchCallsBadge">Calls: -</div>
+          </div>
+        </div>
+
+        <div class="interactive-canvas-wrap">
+          <canvas id="interactiveCanvas" width="900" height="380"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: INTEGRATED HIGHWAY PERSPECTIVE PREVIEW -->
+    <section>
+      <div class="section-title">
+        <span>Highway Perspective Scene Preview</span>
+      </div>
+      <div class="highway-preview-wrap">
+        <div class="section-desc" style="margin-bottom: 0.5rem;">
+          Simulated pseudo-3D road scene demonstrating depth sorting with Sprites.drawScenery and Sprites.drawCar together on asphalt.
+        </div>
+        <canvas id="highwayCanvas" width="1000" height="400"></canvas>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div>Gesture Rider &bull; Sprites Engine &bull; Pure Canvas Shapes</div>
+    <div>All types verified &lt; 15 draw calls &bull; Asphalt Background</div>
+  </footer>
+
+  <!-- Include sprites.js -->
+  <script src="../sprites.js"></script>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // -----------------------------------------------------------------
+      // Draw Call Interceptor
+      // -----------------------------------------------------------------
+      function createDrawCallTracker(ctx) {
+        let drawCalls = 0;
+        const methods = ['fillRect', 'strokeRect', 'stroke', 'fill', 'fillText', 'strokeText'];
+        const originals = {};
+
+        methods.forEach(fn => {
+          originals[fn] = ctx[fn];
+          ctx[fn] = function (...args) {
+            drawCalls++;
+            return originals[fn].apply(ctx, args);
+          };
+        });
+
+        // Intercept drawImage to enforce no external image rule
+        const origDrawImage = ctx.drawImage;
+        ctx.drawImage = function (...args) {
+          throw new Error('Canvas rule violation: drawImage is strictly forbidden!');
+        };
+
+        return {
+          get count() { return drawCalls; },
+          reset() { drawCalls = 0; },
+          restore() {
+            methods.forEach(fn => { ctx[fn] = originals[fn]; });
+            ctx.drawImage = origDrawImage;
+          }
+        };
+      }
+
+      // -----------------------------------------------------------------
+      // Render Sprite Card (Scales: 20, 80, 250)
+      // -----------------------------------------------------------------
+      const SCENERY_TYPES = Sprites.SCENERY_TYPES;
+      const CAR_TYPES = Sprites.CAR_TYPES;
+      const TEST_SCALES = [20, 80, 250];
+
+      function renderTriScaleCard(container, type, isCar) {
+        const card = document.createElement('div');
+        card.className = 'sprite-card';
+
+        const header = document.createElement('div');
+        header.className = 'card-header';
+        header.innerHTML = `
+          <div class="sprite-name">${type}</div>
+          <div class="sprite-type-label">${isCar ? 'Traffic Car' : 'Roadside Scenery'}</div>
+        `;
+        card.appendChild(header);
+
+        // Canvas container
+        const wrap = document.createElement('div');
+        wrap.className = 'canvas-wrap';
+
+        // Wide canvas to fit scale 20, 80, 250 side-by-side
+        const canvas = document.createElement('canvas');
+        canvas.width = 750;
+        canvas.height = 300;
+        wrap.appendChild(canvas);
+        card.appendChild(wrap);
+
+        const ctx = canvas.getContext('2d');
+        const tracker = createDrawCallTracker(ctx);
+
+        // Asphalt background
+        ctx.fillStyle = '#333742';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Ground line across the canvas
+        const groundY = 270;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, groundY);
+        ctx.lineTo(canvas.width, groundY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Ground labels
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.font = '10px monospace';
+        ctx.fillText('GROUND LEVEL (y=270)', 10, groundY - 6);
+
+        // Three anchor X coordinates for the 3 scales
+        // Scale 20: x = 70
+        // Scale 80: x = 240
+        // Scale 250: x = 550
+        const xPositions = [70, 240, 550];
+        const callStats = [];
+
+        TEST_SCALES.forEach((scale, i) => {
+          const x = xPositions[i];
+          tracker.reset();
+
+          // Marker tick at ground point (x, y)
+          ctx.strokeStyle = 'rgba(245, 183, 0, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x, groundY - 4);
+          ctx.lineTo(x, groundY + 4);
+          ctx.stroke();
+
+          // Render sprite
+          if (isCar) {
+            Sprites.drawCar(ctx, type, x, groundY, scale);
+          } else {
+            Sprites.drawScenery(ctx, type, x, groundY, scale);
+          }
+
+          const calls = tracker.count;
+          callStats.push({ scale, calls });
+
+          // Scale marker text
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.font = '11px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(`scale: ${scale}`, x, groundY + 18);
+        });
+
+        // Scales row stats below canvas
+        const statsRow = document.createElement('div');
+        statsRow.className = 'scales-row';
+        callStats.forEach(stat => {
+          const cell = document.createElement('div');
+          cell.className = 'scale-stat';
+          cell.innerHTML = `
+            <div>Scale <strong>${stat.scale}</strong></div>
+            <div class="calls-tag">${stat.calls} calls ${stat.calls < 15 ? '✓' : '✗'}</div>
+          `;
+          statsRow.appendChild(cell);
+        });
+        card.appendChild(statsRow);
+
+        container.appendChild(card);
+      }
+
+      // Populate Scenery and Cars
+      const sceneryGrid = document.getElementById('sceneryGrid');
+      SCENERY_TYPES.forEach(t => renderTriScaleCard(sceneryGrid, t, false));
+
+      const carsGrid = document.getElementById('carsGrid');
+      CAR_TYPES.forEach(t => renderTriScaleCard(carsGrid, t, true));
+
+      // -----------------------------------------------------------------
+      // Interactive Bench
+      // -----------------------------------------------------------------
+      const typeSelect = document.getElementById('typeSelect');
+      const scaleSlider = document.getElementById('scaleSlider');
+      const scaleValueDisplay = document.getElementById('scaleValueDisplay');
+      const showGroundCheck = document.getElementById('showGroundCheck');
+      const benchCallsBadge = document.getElementById('benchCallsBadge');
+      const interactiveCanvas = document.getElementById('interactiveCanvas');
+      const intCtx = interactiveCanvas.getContext('2d');
+      const intTracker = createDrawCallTracker(intCtx);
+
+      // Populate selector
+      const optGroupScenery = document.createElement('optgroup');
+      optGroupScenery.label = 'Roadside Scenery';
+      SCENERY_TYPES.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = 'scenery:' + t;
+        opt.textContent = t;
+        optGroupScenery.appendChild(opt);
+      });
+      typeSelect.appendChild(optGroupScenery);
+
+      const optGroupCars = document.createElement('optgroup');
+      optGroupCars.label = 'Traffic Cars';
+      CAR_TYPES.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = 'car:' + t;
+        opt.textContent = t;
+        optGroupCars.appendChild(opt);
+      });
+      typeSelect.appendChild(optGroupCars);
+
+      function updateInteractive() {
+        const val = typeSelect.value;
+        const [category, type] = val.split(':');
+        const scale = parseInt(scaleSlider.value, 10);
+        scaleValueDisplay.textContent = scale;
+
+        const cw = interactiveCanvas.width;
+        const ch = interactiveCanvas.height;
+        const cx = cw / 2;
+        const groundY = ch - 50;
+
+        // Asphalt background
+        intCtx.fillStyle = '#333742';
+        intCtx.fillRect(0, 0, cw, ch);
+
+        if (showGroundCheck.checked) {
+          // Asphalt road markings / ground axis
+          intCtx.strokeStyle = 'rgba(245, 183, 0, 0.4)';
+          intCtx.lineWidth = 1;
+          intCtx.setLineDash([6, 6]);
+          intCtx.beginPath();
+          intCtx.moveTo(0, groundY);
+          intCtx.lineTo(cw, groundY);
+          intCtx.stroke();
+
+          intCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+          intCtx.beginPath();
+          intCtx.moveTo(cx, 0);
+          intCtx.lineTo(cx, ch);
+          intCtx.stroke();
+          intCtx.setLineDash([]);
+
+          intCtx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+          intCtx.font = '11px monospace';
+          intCtx.textAlign = 'left';
+          intCtx.fillText(`Ground Point (x=${cx}, y=${groundY})`, 15, groundY - 8);
+        }
+
+        intTracker.reset();
+        if (category === 'car') {
+          Sprites.drawCar(intCtx, type, cx, groundY, scale);
+        } else {
+          Sprites.drawScenery(intCtx, type, cx, groundY, scale);
+        }
+
+        const calls = intTracker.count;
+        benchCallsBadge.textContent = `Calls: ${calls} / 15 ${calls < 15 ? '✓ PASS' : '✗ OVER'}`;
+        benchCallsBadge.className = calls < 15 ? 'badge pass' : 'badge fail';
+      }
+
+      typeSelect.addEventListener('change', updateInteractive);
+      scaleSlider.addEventListener('input', updateInteractive);
+      showGroundCheck.addEventListener('change', updateInteractive);
+      updateInteractive();
+
+      // -----------------------------------------------------------------
+      // Highway Scene Preview (Simulated pseudo-3D perspective road)
+      // -----------------------------------------------------------------
+      const hwCanvas = document.getElementById('highwayCanvas');
+      const hwCtx = hwCanvas.getContext('2d');
+
+      function drawHighwayPreview() {
+        const w = hwCanvas.width;
+        const h = hwCanvas.height;
+
+        // Dark night sky
+        hwCtx.fillStyle = '#111317';
+        hwCtx.fillRect(0, 0, w, h * 0.45);
+
+        // Ground / asphalt plane
+        hwCtx.fillStyle = '#22252c';
+        hwCtx.fillRect(0, h * 0.45, w, h * 0.55);
+
+        // Vanishing point
+        const vpX = w * 0.5;
+        const vpY = h * 0.45;
+
+        // Road trapezoid
+        const roadBottomW = w * 0.65;
+        const roadTopW = 20;
+
+        hwCtx.fillStyle = '#323640';
+        hwCtx.beginPath();
+        hwCtx.moveTo(vpX - roadTopW, vpY);
+        hwCtx.lineTo(vpX + roadTopW, vpY);
+        hwCtx.lineTo(vpX + roadBottomW / 2, h);
+        hwCtx.lineTo(vpX - roadBottomW / 2, h);
+        hwCtx.closePath();
+        hwCtx.fill();
+
+        // Asphalt shoulders
+        hwCtx.strokeStyle = '#f5b700';
+        hwCtx.lineWidth = 3;
+        hwCtx.beginPath();
+        hwCtx.moveTo(vpX - roadTopW, vpY);
+        hwCtx.lineTo(vpX - roadBottomW / 2, h);
+        hwCtx.moveTo(vpX + roadTopW, vpY);
+        hwCtx.lineTo(vpX + roadBottomW / 2, h);
+        hwCtx.stroke();
+
+        // Road center dashed lines
+        hwCtx.strokeStyle = '#dedad0';
+        hwCtx.lineWidth = 4;
+        hwCtx.setLineDash([20, 20]);
+        hwCtx.beginPath();
+        hwCtx.moveTo(vpX, vpY);
+        hwCtx.lineTo(vpX, h);
+        hwCtx.stroke();
+        hwCtx.setLineDash([]);
+
+        // Distant city skyline using building-c & building-a (scale 30-45)
+        Sprites.drawScenery(hwCtx, 'building-c', w * 0.15, vpY + 10, 35);
+        Sprites.drawScenery(hwCtx, 'building-a', w * 0.28, vpY + 12, 40);
+        Sprites.drawScenery(hwCtx, 'building-b', w * 0.72, vpY + 12, 42);
+        Sprites.drawScenery(hwCtx, 'building-c', w * 0.86, vpY + 10, 36);
+
+        // Mid-distance roadside objects
+        // Left roadside billboard
+        Sprites.drawScenery(hwCtx, 'billboard', w * 0.12, vpY + 70, 75);
+        // Concrete barrier on left shoulder
+        Sprites.drawScenery(hwCtx, 'concrete-barrier', vpX - 110, vpY + 75, 70);
+        // Streetlights
+        Sprites.drawScenery(hwCtx, 'streetlight', vpX + 115, vpY + 70, 75);
+
+        // Mid-distance traffic
+        Sprites.drawCar(hwCtx, 'truck', vpX - 45, vpY + 75, 75);
+        Sprites.drawCar(hwCtx, 'sedan', vpX + 45, vpY + 95, 95);
+
+        // Near-distance roadside
+        Sprites.drawScenery(hwCtx, 'streetlight', vpX + 260, vpY + 180, 160);
+        Sprites.drawScenery(hwCtx, 'concrete-barrier', vpX - 250, vpY + 185, 150);
+
+        // Close traffic: taxi in right lane, van in left lane
+        Sprites.drawCar(hwCtx, 'taxi', vpX + 100, vpY + 190, 170);
+        Sprites.drawCar(hwCtx, 'van', vpX - 120, vpY + 205, 185);
+      }
+
+      drawHighwayPreview();
+
+      // -----------------------------------------------------------------
+      // Automated Self-Test Verification Suite
+      // -----------------------------------------------------------------
+      function runSelfTests() {
+        const badgesContainer = document.getElementById('suiteBadges');
+        badgesContainer.innerHTML = '';
+
+        const results = [];
+        function assert(name, condition) {
+          results.push({ name, pass: Boolean(condition) });
+        }
+
+        assert('Sprites Global Exists', typeof window.Sprites === 'object' && window.Sprites !== null);
+        assert('drawScenery is Function', typeof Sprites.drawScenery === 'function');
+        assert('drawCar is Function', typeof Sprites.drawCar === 'function');
+        assert('6 Scenery Types Defined', Array.isArray(Sprites.SCENERY_TYPES) && Sprites.SCENERY_TYPES.length === 6);
+        assert('4 Car Types Defined', Array.isArray(Sprites.CAR_TYPES) && Sprites.CAR_TYPES.length === 4);
+
+        // Mock test context for draw call & shadowBlur verification
+        const mockCanvas = document.createElement('canvas');
+        mockCanvas.width = 1000;
+        mockCanvas.height = 1000;
+        const mockCtx = mockCanvas.getContext('2d');
+        const tracker = createDrawCallTracker(mockCtx);
+
+        let maxCallsFound = 0;
+        let allCallsUnder15 = true;
+        let shadowBlurAlwaysZero = true;
+
+        // Test every scenery type at 20, 80, 250
+        SCENERY_TYPES.forEach(type => {
+          TEST_SCALES.forEach(scale => {
+            tracker.reset();
+            Sprites.drawScenery(mockCtx, type, 500, 500, scale);
+            const calls = tracker.count;
+            if (calls > maxCallsFound) maxCallsFound = calls;
+            if (calls >= 15) allCallsUnder15 = false;
+            if (mockCtx.shadowBlur !== 0) shadowBlurAlwaysZero = false;
+          });
+        });
+
+        // Test every car type at 20, 80, 250
+        CAR_TYPES.forEach(type => {
+          TEST_SCALES.forEach(scale => {
+            tracker.reset();
+            Sprites.drawCar(mockCtx, type, 500, 500, scale);
+            const calls = tracker.count;
+            if (calls > maxCallsFound) maxCallsFound = calls;
+            if (calls >= 15) allCallsUnder15 = false;
+            if (mockCtx.shadowBlur !== 0) shadowBlurAlwaysZero = false;
+          });
+        });
+
+        assert('All Draw Calls < 15 (Max: ' + maxCallsFound + ')', allCallsUnder15);
+        assert('shadowBlur Cleanly Reset', shadowBlurAlwaysZero);
+
+        // Add badges
+        const allPass = results.every(r => r.pass);
+        const masterBadge = document.createElement('div');
+        masterBadge.className = allPass ? 'badge pass' : 'badge fail';
+        masterBadge.textContent = allPass ? 'ALL TESTS PASSED' : 'TESTS FAILED';
+        badgesContainer.appendChild(masterBadge);
+
+        const callsBadge = document.createElement('div');
+        callsBadge.className = 'badge yellow';
+        callsBadge.textContent = `Max Calls: ${maxCallsFound}/15`;
+        badgesContainer.appendChild(callsBadge);
+
+        results.forEach(r => {
+          const b = document.createElement('div');
+          b.className = r.pass ? 'badge pass' : 'badge fail';
+          b.textContent = `${r.name}: ${r.pass ? 'PASS' : 'FAIL'}`;
+          badgesContainer.appendChild(b);
+        });
+      }
+
+      runSelfTests();
+    })();
+  </script>
+</body>
+</html>
