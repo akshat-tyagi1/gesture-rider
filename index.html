@@ -4,15 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Gesture Rider - AI Powered Moto Sim</title>
-    
+
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-    
+
     <!-- MediaPipe Hands -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
@@ -21,15 +21,41 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="styles.css">
+
+    <style>
+        /* Tracking-loss warning overlay */
+        #tracking-lost-msg {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.75);
+            color: #ffcc00;
+            font-family: 'Inter', sans-serif;
+            font-size: 1.4rem;
+            font-weight: 700;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: 2px solid #ffcc00;
+            z-index: 999;
+            pointer-events: none;
+            align-items: center;
+            gap: 0.5rem;
+        }
+    </style>
 </head>
 <body>
 
 <div id="game-container">
     <canvas id="gameCanvas"></canvas>
-    
+
     <!-- Webcam element (hidden in DOM, rendered to canvas/preview) -->
     <video id="input_video" style="display:none"></video>
     <canvas id="webcam-preview"></canvas>
+
+    <!-- Tracking-loss warning (shown when hand absent > 300 ms during RACING) -->
+    <div id="tracking-lost-msg">✋ Show your hand</div>
 
     <div id="ui-layer">
         <div class="hud-top">
@@ -48,7 +74,7 @@
                 <span id="speedVal" class="score-val">0</span>
             </div>
         </div>
-        
+
         <div id="message-area"></div>
 
         <!-- Debug Info for Gestures -->
@@ -75,19 +101,14 @@
         <div class="crash-title">CRASHED</div>
         <div class="final-score">Your Score: <span id="final-score">0</span></div>
         <div class="high-score-display">Best: <span id="best-score">0</span></div>
-        <div class="wave-hint">👋 Wave to try again</div>
         <button id="restart-btn" class="btn">TRY AGAIN</button>
     </div>
 
     <div id="overlay-screen">
         <h1>GESTURE RIDER</h1>
         <h2>AI Powered Highway Experience</h2>
-        
+
         <div class="instructions">
-            <div class="instruction-card">
-                <h3>👋 Wave</h3>
-                <p>Wave your hand to start or restart the game.</p>
-            </div>
             <div class="instruction-card">
                 <h3>✋ Steer</h3>
                 <p>Tilt your hand left or right like a doorknob.</p>
@@ -99,6 +120,10 @@
             <div class="instruction-card">
                 <h3>✊ Brake</h3>
                 <p>Close your hand into a fist to slow down.</p>
+            </div>
+            <div class="instruction-card">
+                <h3>⌨️ Keyboard</h3>
+                <p>W/A/S/D or Arrow keys always work.</p>
             </div>
         </div>
 
