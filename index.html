@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gesture Rider - AI Powered Moto Sim</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <!-- Webcam element (hidden in DOM, rendered to canvas/preview) -->
+    <video id="input_video" style="display:none"></video>
+    <canvas id="webcam-preview"></canvas>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="score-box">
+                <span class="score-label">Score</span>
+                <span id="scoreVal" class="score-val">0</span>
+            </div>
+            <div class="hud-center">
+                <div class="distance-display">
+                    <span id="distVal">0.0</span>
+                    <span class="distance-unit">KM</span>
+                </div>
+            </div>
+            <div class="score-box" style="align-items: flex-end;">
+                <span class="score-label">Speed</span>
+                <span id="speedVal" class="score-val">0</span>
+            </div>
+        </div>
+        
+        <div id="message-area"></div>
+
+        <!-- Debug Info for Gestures -->
+        <div id="gesture-state">
+            <div class="state-row"><span>Status</span> <span id="g-status" class="val">No Hand</span></div>
+            <div class="state-row"><span>Tilt</span> <span id="g-tilt" class="val">0°</span></div>
+            <div class="state-row"><span>Action</span> <span id="g-action" class="val">Idle</span></div>
+        </div>
+
+        <!-- Keyboard Controls Indicator -->
+        <div id="controls-hint">
+            <div class="key-row">
+                <span class="key">W</span>
+            </div>
+            <div class="key-row">
+                <span class="key">A</span>
+                <span class="key">S</span>
+                <span class="key">D</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-over-screen" class="hidden">
+        <div class="crash-title">CRASHED</div>
+        <div class="final-score">Your Score: <span id="final-score">0</span></div>
+        <div class="high-score-display">Best: <span id="best-score">0</span></div>
+        <div class="wave-hint">👋 Wave to try again</div>
+        <button id="restart-btn" class="btn">TRY AGAIN</button>
+    </div>
+
+    <div id="overlay-screen">
+        <h1>GESTURE RIDER</h1>
+        <h2>AI Powered Highway Experience</h2>
+        
+        <div class="instructions">
+            <div class="instruction-card">
+                <h3>👋 Wave</h3>
+                <p>Wave your hand to start or restart the game.</p>
+            </div>
+            <div class="instruction-card">
+                <h3>✋ Steer</h3>
+                <p>Tilt your hand left or right like a doorknob.</p>
+            </div>
+            <div class="instruction-card">
+                <h3>🖐 Accelerate</h3>
+                <p>Open your palm wide to speed up.</p>
+            </div>
+            <div class="instruction-card">
+                <h3>✊ Brake</h3>
+                <p>Close your hand into a fist to slow down.</p>
+            </div>
+        </div>
+
+        <button id="start-btn" class="btn" disabled>Loading AI...</button>
+        <div id="loading-msg">Initializing MediaPipe Hands...</div>
+    </div>
+</div>
+
+<!-- Game Script -->
+<script src="game.js"></script>
+</body>
+</html>
