@@ -54,15 +54,17 @@ Only `RACING` advances movement, traffic, collisions, race timer. One animation 
 
 ## 6. Lives, collisions, coins
 
-- 3 lives. Hitting traffic or a crash object: -1 life, -2 coins (min 0), brief slowdown, hit animation + sound.
+- 3 lives. Hitting traffic or a crash object: -1 life, -10 score (clamped at 0), brief slowdown, hit animation + sound.
 - Each obstacle can hit once: flag it `hit` and clear the flag only when it is far behind/away. No invulnerability timer.
 - Lives are always visible. Losing all 3 = immediate `WASTED`, remaining checkpoints skipped (not counted wrong).
 - Tracking lost (no hand result for >300 ms): show "Show your hand", coast/slow down, never crash or lose a life because of it. Keyboard always works and overrides gesture when any key is pressed.
 
 ## 7. Scoring (clamp score >= 0 after every event)
 
-Coin +5 | Correct +100 | Wrong -20 | Timeout -20 | Finish race +50 | Crash: no direct deduction.
-HUD shows only: score, coins, checkpoint number (+ lives). Accuracy and stats only on results screen.
+Coin +5 | Crash -10 | Correct +100 | Wrong -20 | Timeout -20 | Finish race +50.
+One scoring system only: Score. There is no separate coin currency. Score goes up and down. The crash penalty is one constant `CRASH_PENALTY` (10).
+HUD shows only: score, checkpoint number, lives. A hidden count `coinsCollected` (coins picked up, never reduced) is kept for the results screen and the leaderboard tie-break.
+Accuracy and stats only on results screen.
 
 ## 8. Question banks
 
