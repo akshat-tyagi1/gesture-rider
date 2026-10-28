@@ -47,8 +47,12 @@
             </div>
         </div>
 
-        <!-- Lives row -->
+        <!-- Lives & Checkpoint row -->
         <div class="hud-lives-row">
+            <div class="hud-pill" id="checkpoint-pill">
+                <span class="hud-pill-label">Checkpoint</span>
+                <span id="checkpointVal" class="hud-pill-val">Q 0/4</span>
+            </div>
             <div class="hud-pill" id="lives-pill">
                 <span class="hud-pill-label">Lives</span>
                 <span id="livesVal" class="hud-pill-val">❤️❤️❤️</span>
@@ -75,18 +79,111 @@
         </div>
     </div>
 
-    <!-- Game-over / WASTED screen -->
+    <!-- Countdown screen -->
+    <div id="countdown-screen" class="hidden">
+        <span id="countdown-num">3</span>
+    </div>
+
+    <!-- Quiz screen -->
+    <div id="quiz-screen" class="hidden">
+        <div class="quiz-card">
+            <div class="quiz-header">
+                <span id="quiz-progress">Question 1 of 4</span>
+                <div id="quiz-timer">
+                    <span id="quiz-timer-num" class="timer-num">15</span>
+                    <div class="timer-bar-track">
+                        <div id="quiz-timer-bar" class="timer-bar-fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="quiz-question"></div>
+
+            <div class="quiz-options">
+                <button type="button" class="quiz-opt-btn" id="quiz-opt-0">
+                    <span class="opt-key">A</span>
+                    <span class="opt-text"></span>
+                </button>
+                <button type="button" class="quiz-opt-btn" id="quiz-opt-1">
+                    <span class="opt-key">B</span>
+                    <span class="opt-text"></span>
+                </button>
+                <button type="button" class="quiz-opt-btn" id="quiz-opt-2">
+                    <span class="opt-key">C</span>
+                    <span class="opt-text"></span>
+                </button>
+                <button type="button" class="quiz-opt-btn" id="quiz-opt-3">
+                    <span class="opt-key">D</span>
+                    <span class="opt-text"></span>
+                </button>
+            </div>
+
+            <div id="quiz-feedback" class="hidden">
+                <div id="quiz-result-label"></div>
+                <div id="quiz-correct-answer"></div>
+                <div id="quiz-explanation"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Idle warning -->
+    <div id="idle-warning" class="hidden">Still there? Move to continue</div>
+
+    <!-- Game-over / WASTED / Results screen -->
     <div id="game-over-screen" class="hidden">
         <div class="crash-title" id="game-over-title">WASTED</div>
         <div class="final-score">Score: <span id="final-score">0</span></div>
         <div class="high-score-display">Best: <span id="best-score">0</span></div>
-        <button id="restart-btn" class="btn">TRY AGAIN</button>
+
+        <div class="results-stats">
+            <div class="stat-item">
+                <span class="stat-label">Coins</span>
+                <span id="stat-coins" class="stat-val">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Answered</span>
+                <span id="stat-answered" class="stat-val">0/4</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Accuracy</span>
+                <span id="stat-accuracy" class="stat-val">0%</span>
+            </div>
+        </div>
+
+        <div class="leaderboard-section">
+            <h3>Leaderboard</h3>
+            <ol id="leaderboard-list"></ol>
+        </div>
+
+        <div class="results-actions">
+            <button id="restart-btn" class="btn">TRY AGAIN</button>
+            <button id="next-player-btn" class="btn">NEXT PLAYER</button>
+        </div>
     </div>
 
     <!-- Main menu -->
     <div id="overlay-screen">
         <h1>GESTURE RIDER</h1>
         <h2>AI Powered Highway Experience</h2>
+
+        <div class="setup-container">
+            <div class="setup-group">
+                <label for="player-name">Rider Name</label>
+                <input id="player-name" type="text" maxlength="12" placeholder="Your name">
+            </div>
+
+            <div class="setup-group">
+                <label>Select Subject</label>
+                <div class="subject-picker">
+                    <button type="button" class="subject-btn selected" data-subject="python">Python</button>
+                    <button type="button" class="subject-btn" data-subject="html">HTML</button>
+                    <button type="button" class="subject-btn" data-subject="css">CSS</button>
+                    <button type="button" class="subject-btn" data-subject="maths">Maths</button>
+                </div>
+            </div>
+
+            <button type="button" id="quick-start-btn" class="btn btn-secondary">QUICK START</button>
+        </div>
 
         <div class="instructions">
             <div class="instruction-card">
