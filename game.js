@@ -433,7 +433,6 @@ class Game {
         this.lives = CONFIG.START_LIVES;
         this.coins = 0;
         this.hitFlashUntil = 0;       // timestamp until red flash is shown
-        this.invulUntil = 0;          // brief invulnerability window after a hit
 
         this.mountainPoints = [];
         this.highScore = parseInt(localStorage.getItem('gestureRiderHighScore')) || 0;
@@ -512,14 +511,15 @@ class Game {
             }
 
             // Coin lines — short run of 3-5 coins in a lane
+            // Guard: only write to segments that have already been pushed into this.segments.
             if (i > 10 && i % 30 === 0 && this.rng() > 0.5) {
                 const lanes = [-0.65, 0, 0.65];
                 const lane = lanes[Math.floor(this.rng() * lanes.length)];
                 const count = 3 + Math.floor(this.rng() * 3); // 3-5
                 for (let c = 0; c < count; c++) {
-                    // Space coins 1 segment apart in the same lane
                     const targetSeg = i + c;
-                    if (targetSeg < TOTAL_SEGMENTS) {
+                    // targetSeg must already exist in the array (built so far)
+                    if (targetSeg < this.segments.length) {
                         this.segments[targetSeg].coins.push({ offset: lane, collected: false });
                     }
                 }
@@ -528,21 +528,23 @@ class Game {
     }
 
     addCar(segmentIndex, offset, speed) {
+        if (segmentIndex < 0 || segmentIndex >= this.segments.length) return;
         this.segments[segmentIndex].cars.push({
             offset,
             z: segmentIndex * CONFIG.SEGMENT_LENGTH,
             speed,
             type: this.rng() > 0.5 ? 'car' : 'truck',
-            hit: false,          // one-hit flag (Phase 2)
-            canHit: false        // becomes true once car is > threshold ahead (Phase 2)
+            hit: false,
+            canHit: false
         });
     }
 
     addSprite(segmentIndex, offset, type) {
+        if (segmentIndex < 0 || segmentIndex >= this.segments.length) return;
         this.segments[segmentIndex].sprites.push({
             offset,
             type,
-            hit: false   // one-hit flag (Phase 2)
+            hit: false
         });
     }
 
@@ -567,7 +569,6 @@ class Game {
         this.lives = CONFIG.START_LIVES;
         this.coins = 0;
         this.hitFlashUntil = 0;
-        this.invulUntil = 0;
         this.lastTime = performance.now();
         this.audio.resume();
         this.audio.update(0);
@@ -587,13 +588,11 @@ class Game {
      */
     takeHit() {
         if (this.gameState !== STATE.RACING) return;
-        if (Date.now() < this.invulUntil) return; // still in post-hit window
-
+        // No invulnerability timer — the per-obstacle hit flag is the only protection (PLAN §6).
         this.lives -= CONFIG.HIT_LIFE_COST;
         this.coins = Math.max(0, this.coins - CONFIG.HIT_COIN_COST);
         this.speed *= CONFIG.HIT_SPEED_FACTOR;
         this.hitFlashUntil = Date.now() + CONFIG.HIT_FLASH_MS;
-        this.invulUntil = Date.now() + CONFIG.HIT_FLASH_MS; // same duration
         this.audio.playCrash();
         this._updateHUD();
 
@@ -675,7 +674,6 @@ class Game {
      * One-hit rule: once flagged hit, ignore until the obstacle is far behind.
      */
     checkSpriteCollisions() {
-        if (Date.now() < this.invulUntil) return;
         const playerZ = this.position + CONFIG.CAMERA_HEIGHT;
         const trackLen = this.segments.length * CONFIG.SEGMENT_LENGTH;
         const startSeg = Math.floor(playerZ / CONFIG.SEGMENT_LENGTH) % this.segments.length;
@@ -779,7 +777,6 @@ class Game {
 
                 if (!car.canHit) continue;
                 if (car.hit) continue;
-                if (Date.now() < this.invulUntil) continue;
 
                 if (Math.abs(dist) < 200) {
                     const carW = 0.45, playerW = 0.15;
