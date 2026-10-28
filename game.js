@@ -31,6 +31,10 @@ const CONFIG = {
     // Traffic hit requires car to be > 250 units AHEAD of player first
     CAR_HIT_AHEAD_THRESHOLD: 250,
 
+    // Finish line (PLAN §5, §7)
+    RACE_DISTANCE: 1200000,
+    FINISH_BONUS: 50,
+
     COLORS: {
         SKY_TOP: '#000022',
         SKY_BOTTOM: '#003366',
@@ -56,7 +60,8 @@ const CONFIG = {
 const STATE = {
     MENU: 'MENU',
     RACING: 'RACING',
-    WASTED: 'WASTED'
+    WASTED: 'WASTED',
+    FINISHED: 'FINISHED'
 };
 
 /**
@@ -613,10 +618,11 @@ class Game {
     }
 
     /**
-     * wasted — transition to WASTED state (replaces old crash() game-end).
+     * endRun — shared end-of-run helper.
+     * Sets gameState, stops the bike, saves best score, populates and shows game-over screen.
      */
-    wasted() {
-        this.gameState = STATE.WASTED;
+    endRun(title, state) {
+        this.gameState = state;
         this.speed = 0;
 
         if (this.score > this.highScore) {
@@ -624,10 +630,24 @@ class Game {
             localStorage.setItem('gestureRiderHighScore', this.highScore);
         }
 
-        document.getElementById('game-over-title').textContent = 'WASTED';
+        document.getElementById('game-over-title').textContent = title;
         document.getElementById('final-score').textContent = Math.floor(this.score);
         document.getElementById('best-score').textContent = this.highScore;
         document.getElementById('game-over-screen').classList.remove('hidden');
+    }
+
+    /**
+     * wasted — transition to WASTED state.
+     */
+    wasted() {
+        this.endRun('WASTED', STATE.WASTED);
+    }
+
+    /**
+     * getRaceProgress — returns 0..1 progress toward the finish line.
+     */
+    getRaceProgress() {
+        return Math.max(0, Math.min(1, this.distanceRun / CONFIG.RACE_DISTANCE));
     }
 
     update(dt) {
@@ -660,16 +680,32 @@ class Game {
         if ((this.playerX < -1 || this.playerX > 1) && this.speed > 2000) this.speed += CONFIG.OFF_ROAD_DECEL * dt * 60;
         this.playerX = Math.max(-2, Math.min(2, this.playerX));
 
-        this.position += this.speed * dt;
-        this.distanceRun += this.speed * dt;
-
+        // --- Substepped movement and collisions ---
+        const steps = Math.max(1, Math.ceil(this.speed * dt / 100));
+        const subDt = dt / steps;
         const trackLength = this.segments.length * CONFIG.SEGMENT_LENGTH;
-        if (this.position >= trackLength) this.position -= trackLength;
-        if (this.position < 0) this.position += trackLength;
 
-        this.updateTraffic(dt);
-        this.checkSpriteCollisions();
-        this.checkCoinCollections();
+        for (let s = 0; s < steps; s++) {
+            if (this.gameState !== STATE.RACING) break;
+
+            this.position += this.speed * subDt;
+            this.distanceRun += this.speed * subDt;
+
+            if (this.position >= trackLength) this.position -= trackLength;
+            if (this.position < 0) this.position += trackLength;
+
+            this.updateTraffic(subDt);
+            this.checkSpriteCollisions();
+            this.checkCoinCollections();
+
+            // Finish line — triggers once (state change prevents re-entry)
+            if (this.gameState === STATE.RACING && this.distanceRun >= CONFIG.RACE_DISTANCE) {
+                this.addScore(CONFIG.FINISH_BONUS);
+                this._showScoreFloat(`+${CONFIG.FINISH_BONUS}`, true);
+                this.endRun('FINISH!', STATE.FINISHED);
+                break;
+            }
+        }
 
         this._updateHUD();
     }
@@ -703,8 +739,9 @@ class Game {
                 if (dist < -trackLen / 2) dist += trackLen;
                 if (dist > trackLen / 2) dist -= trackLen;
 
-                // Clear hit flag when obstacle is far behind (> 500 units)
-                if (dist < -500) sprite.hit = false;
+                // Clear hit flag when obstacle is still ahead (> 300 units) so the
+                // near-player scan window (i = -1..+2) can actually see it re-armed.
+                if (dist > 300) sprite.hit = false;
 
                 if (sprite.hit) continue;
 
