@@ -320,7 +320,7 @@ window.QUESTION_BANKS.html = [
     subject: "html",
     tier: "easy-medium",
     q: "Which HTML tag groups individual <option> items into a drop-down selection menu?",
-    options: ["<dropdown>", "<select>", "<menu>", "<datalist>"],
+    options: ["<dropdown>", "<select>", "<menu>", "<optionlist>"],
     answer: 1,
     explain: "The <select> element generates a drop-down menu composed of child option tags."
   },
@@ -518,7 +518,7 @@ window.QUESTION_BANKS.html = [
     subject: "html",
     tier: "medium",
     q: "Which rel attribute value prevents a target='_blank' link from accessing window.opener?",
-    options: ["nofollow", "noreferrer", "prefetch", "noopener"],
+    options: ["nofollow", "bookmark", "prefetch", "noopener"],
     answer: 3,
     explain: "The rel='noopener' attribute blocks the newly opened tab from referencing the originating window."
   },
