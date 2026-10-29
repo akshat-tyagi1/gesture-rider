@@ -481,6 +481,9 @@ class Game {
         this.countdownStartTime = 0;
         this.countdownNum = 3;
 
+        this.lastSteer = 0;
+        this.runId = this.generateRunId();
+
         this.mountainPoints = [];
         this.highScore = parseInt(localStorage.getItem('gestureRiderHighScore')) || 0;
         this.rng = makeLCG(SEED);
@@ -494,6 +497,10 @@ class Game {
         this.lastTime = 0;
 
         document.getElementById('restart-btn').addEventListener('click', () => this.restart());
+        const nextPlayerBtn = document.getElementById('next-player-btn');
+        if (nextPlayerBtn) {
+            nextPlayerBtn.addEventListener('click', () => this.nextPlayer());
+        }
         window.addEventListener('resize', () => this._onResize());
 
         // --- Quiz option buttons ---
@@ -507,6 +514,8 @@ class Game {
         // --- Quiz keydown handler ---
         this._onQuizKey = this._onQuizKey.bind(this);
         window.addEventListener('keydown', this._onQuizKey);
+
+        this.renderLeaderboard();
     }
 
     _buildMountains() {
@@ -609,6 +618,35 @@ class Game {
         });
     }
 
+    generateRunId() {
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9);
+    }
+
+    nextPlayer() {
+        document.getElementById('game-over-screen').classList.add('hidden');
+        document.getElementById('overlay-screen').classList.remove('hidden');
+        const nameInput = document.getElementById('player-name');
+        if (nameInput) nameInput.value = '';
+        this.gameState = STATE.MENU;
+        this.lastSteer = 0;
+        this.runId = this.generateRunId();
+    }
+
+    renderLeaderboard() {
+        const listEl = document.getElementById('leaderboard-list');
+        if (!listEl) return;
+        while (listEl.firstChild) {
+            listEl.removeChild(listEl.firstChild);
+        }
+        const entries = (typeof Store !== 'undefined' && Store.load) ? Store.load() : [];
+        console.log('[LBDBG] render leaderboard data:', entries);
+        for (const entry of entries) {
+            const li = document.createElement('li');
+            li.textContent = `${entry.name} - ${entry.score} pts (${entry.coins} coins)`;
+            listEl.appendChild(li);
+        }
+    }
+
     start(name, subject) {
         this.playerName = name || 'Rider';
         this.subject = subject || 'python';
@@ -617,6 +655,8 @@ class Game {
         this.graceTime = 0;
         this.audio.init();
         this.gameState = STATE.RACING;
+        this.lastSteer = 0;
+        this.runId = this.generateRunId();
         this.input.keys = {};
         this.input.keyboardSteer = 0;
         this.lastTime = performance.now();
@@ -654,6 +694,10 @@ class Game {
         this.lastTime = performance.now();
         this.audio.resume();
         this.audio.update(0);
+        this.lastSteer = 0;
+        this.runId = this.generateRunId();
+        this.input.keys = {};
+        this.input.keyboardSteer = 0;
         this.gameState = STATE.RACING;
     }
 
@@ -692,8 +736,30 @@ class Game {
     endRun(title, state) {
         this.gameState = state;
         this.speed = 0;
+        this.lastSteer = 0;
 
-        if (this.score > this.highScore) {
+        const quizStats = this.quizRun ? this.quizRun.stats() : { answered: 0, correct: 0, timeouts: 0, accuracyPct: 0 };
+        const submitArgs = {
+            runId: this.runId,
+            name: this.playerName,
+            score: Math.floor(this.score),
+            coins: this.coinsCollected,
+            subject: this.subject,
+            answered: quizStats.answered,
+            correct: quizStats.correct,
+            timeouts: quizStats.timeouts,
+            finished: state === STATE.FINISHED
+        };
+        console.log('[LBDBG] submit args:', submitArgs);
+        let submitResult = null;
+        if (typeof Store !== 'undefined' && Store.submit) {
+            submitResult = Store.submit(submitArgs);
+        }
+        console.log('[LBDBG] submit result:', submitResult);
+
+        if (submitResult && typeof submitResult.personalBest === 'number') {
+            this.highScore = submitResult.personalBest;
+        } else if (this.score > this.highScore) {
             this.highScore = Math.floor(this.score);
             localStorage.setItem('gestureRiderHighScore', this.highScore);
         }
@@ -705,11 +771,12 @@ class Game {
         // Results stats (PLAN §7)
         const statCoins = document.getElementById('stat-coins');
         if (statCoins) statCoins.textContent = this.coinsCollected;
-        const quizStats = this.quizRun ? this.quizRun.stats() : { answered: 0, accuracyPct: 0 };
         const statAnswered = document.getElementById('stat-answered');
         if (statAnswered) statAnswered.textContent = `${quizStats.answered} / 4`;
         const statAccuracy = document.getElementById('stat-accuracy');
         if (statAccuracy) statAccuracy.textContent = `${quizStats.accuracyPct}%`;
+
+        this.renderLeaderboard();
 
         document.getElementById('game-over-screen').classList.remove('hidden');
     }
@@ -729,6 +796,10 @@ class Game {
     }
 
     update(dt) {
+        if (this.gameState !== STATE.RACING) {
+            this.lastSteer = 0;
+        }
+
         // --- QUIZ state: drive timer from performance.now() ---
         if (this.gameState === STATE.QUIZ) {
             this.audio.update(0);
@@ -792,6 +863,7 @@ class Game {
         }
 
         const cmd = this.input.getCommand();
+        this.lastSteer = cmd.steer;
         const ratio = this.speed / CONFIG.MAX_SPEED;
         this.audio.update(ratio);
 
@@ -997,6 +1069,7 @@ class Game {
         this.input.gesture.tilt = 0;
         this.input.gesture.throttle = 0;
         this.input.gesture.brake = 0;
+        this.lastSteer = 0;
 
         // Grace period: 1 s of racing where hits are skipped
         this.graceTime = CONFIG.GRACE_DURATION;
@@ -1417,9 +1490,7 @@ class Game {
         const cx = this.width / 2, cy = this.height;
         const shakeX = (Math.random() - 0.5) * (this.speed / CONFIG.MAX_SPEED) * 5;
         const shakeY = (Math.random() - 0.5) * (this.speed / CONFIG.MAX_SPEED) * 5;
-        const lean = this.input.gesture.active
-            ? this.input.gesture.tilt * 100
-            : (this.input.keys['ArrowLeft'] ? -50 : (this.input.keys['ArrowRight'] ? 50 : 0));
+        const lean = -this.lastSteer * 100;
 
         this.ctx.save();
         this.ctx.translate(cx + shakeX + lean, cy + shakeY);
