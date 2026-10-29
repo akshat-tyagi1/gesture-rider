@@ -205,7 +205,8 @@ class AudioController {
  * ------------------------------------------------------------------
  */
 class InputSystem {
-    constructor() {
+    constructor(game = null) {
+        this.game = game;
         this.keys = {};
         this.gesture = { tilt: 0, throttle: 0, brake: 0, active: false };
 
@@ -217,12 +218,18 @@ class InputSystem {
         this.TRACKING_TIMEOUT = 300;
 
         window.addEventListener('keydown', (e) => {
+            if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
+            if (this.game && this.game.gameState === STATE.MENU) return;
             this.keys[e.code] = true;
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
                 e.preventDefault();
             }
         });
-        window.addEventListener('keyup', (e) => this.keys[e.code] = false);
+        window.addEventListener('keyup', (e) => {
+            if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
+            if (this.game && this.game.gameState === STATE.MENU) return;
+            this.keys[e.code] = false;
+        });
 
         this.videoElement = document.getElementById('input_video');
         this.canvasPreview = document.getElementById('webcam-preview');
@@ -440,7 +447,7 @@ class Game {
         this.canvas.width = this.width;
         this.canvas.height = this.height;
 
-        this.input = new InputSystem();
+        this.input = new InputSystem(this);
         this.audio = new AudioController();
         this.particles = new ParticleSystem(this.ctx, this.width, this.height);
 
@@ -488,6 +495,14 @@ class Game {
 
         document.getElementById('restart-btn').addEventListener('click', () => this.restart());
         window.addEventListener('resize', () => this._onResize());
+
+        // --- Quiz option buttons ---
+        for (let i = 0; i < 4; i++) {
+            const btn = document.getElementById(`quiz-opt-${i}`);
+            if (btn) {
+                btn.addEventListener('click', () => this._handleQuizAnswer(i));
+            }
+        }
 
         // --- Quiz keydown handler ---
         this._onQuizKey = this._onQuizKey.bind(this);
@@ -602,6 +617,8 @@ class Game {
         this.graceTime = 0;
         this.audio.init();
         this.gameState = STATE.RACING;
+        this.input.keys = {};
+        this.input.keyboardSteer = 0;
         this.lastTime = performance.now();
         if (!this.loopRunning) {
             this.loopRunning = true;
@@ -991,8 +1008,10 @@ class Game {
      * _onQuizKey — keydown handler for quiz answers and feedback dismiss.
      */
     _onQuizKey(e) {
+        if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
+
         // Prevent Space/Enter from scrolling/triggering
-        if (e.code === 'Space' || e.code === 'Enter') {
+        if (e.code === 'Space' || e.code === 'Enter' || e.key === ' ' || e.key === 'Enter') {
             if (this.gameState === STATE.QUIZ || this.gameState === STATE.FEEDBACK || this.gameState === STATE.COUNTDOWN) {
                 e.preventDefault();
             }
@@ -1001,17 +1020,23 @@ class Game {
         // Answer keys in QUIZ state
         if (this.gameState === STATE.QUIZ && !this.quizAnswerLocked) {
             if (e.repeat) return;
-            const map = { 'KeyA': 0, 'Digit1': 0, 'Numpad1': 0, 'KeyB': 1, 'Digit2': 1, 'Numpad2': 1, 'KeyC': 2, 'Digit3': 2, 'Numpad3': 2, 'KeyD': 3, 'Digit4': 3, 'Numpad4': 3 };
-            if (e.code in map) {
+            const map = {
+                'KeyA': 0, 'Digit1': 0, 'Numpad1': 0, 'a': 0, 'A': 0, '1': 0,
+                'KeyB': 1, 'Digit2': 1, 'Numpad2': 1, 'b': 1, 'B': 1, '2': 1,
+                'KeyC': 2, 'Digit3': 2, 'Numpad3': 2, 'c': 2, 'C': 2, '3': 2,
+                'KeyD': 3, 'Digit4': 3, 'Numpad4': 3, 'd': 3, 'D': 3, '4': 3
+            };
+            const choice = (e.code && e.code in map) ? map[e.code] : (e.key && e.key in map ? map[e.key] : undefined);
+            if (choice !== undefined) {
                 e.preventDefault();
-                this._handleQuizAnswer(map[e.code]);
+                this._handleQuizAnswer(choice);
             }
             return;
         }
 
         // Dismiss feedback with Space/Enter
         if (this.gameState === STATE.FEEDBACK) {
-            if (e.code === 'Space' || e.code === 'Enter') {
+            if (e.code === 'Space' || e.code === 'Enter' || e.key === ' ' || e.key === 'Enter') {
                 this._startCountdown();
             }
             return;
