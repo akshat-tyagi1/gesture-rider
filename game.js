@@ -43,6 +43,7 @@ const CONFIG = {
     QUIZ_FEEDBACK_AUTO_MS: 6000, // auto-dismiss feedback after 6 s
     COUNTDOWN_SECONDS: 3,
     GRACE_DURATION: 1.0,         // 1 s grace after countdown (no hit checks)
+    STAGE_MULTIPLIERS: [1.0, 1.0, 1.25, 1.5, 1.5], // Stage-based traffic density (PLAN §5)
 
     COLORS: {
         SKY_TOP: '#000022',
@@ -412,6 +413,9 @@ class Game {
         this.mountainPoints = [];
         this.highScore = parseInt(localStorage.getItem('gestureRiderHighScore')) || 0;
         this.rng = makeLCG(SEED);
+        this.stage = 0;               // 0..4 — traffic density stage (PLAN §5)
+        this._stageInitialized = false;
+        this.allCars = [];
 
         this.resetRoad();
         this._buildMountains();
@@ -504,6 +508,7 @@ class Game {
      */
     resetRoad() {
         this.segments = [];
+        this.allCars = [];
         this.rng = makeLCG(SEED);
         const TOTAL_SEGMENTS = 2000;
         for (let i = 0; i < TOTAL_SEGMENTS; i++) {
@@ -557,18 +562,63 @@ class Game {
                 }
             }
         }
+
+        this.setStage(0, true);
     }
 
     addCar(segmentIndex, offset, speed) {
         if (segmentIndex < 0 || segmentIndex >= this.segments.length) return;
-        this.segments[segmentIndex].cars.push({
+        const car = {
             offset,
             z: segmentIndex * CONFIG.SEGMENT_LENGTH,
             speed,
             type: this.rng() > 0.5 ? 'car' : 'truck',
+            r: this.rng(),
+            active: false,
             hit: false,
             canHit: false
-        });
+        };
+        this.segments[segmentIndex].cars.push(car);
+        this.allCars.push(car);
+    }
+
+    /**
+     * setStage — updates stage-based traffic density (PLAN §5).
+     * Stage = number of quiz checkpoints passed (0 to 4).
+     * Multipliers: [1.0, 1.0, 1.25, 1.5, 1.5].
+     * A car is active only when car.r < multiplier(stage) / 1.5.
+     * When a checkpoint is passed, newly active cars appear only where |dist| > 600.
+     */
+    setStage(newStage, forceLog = false) {
+        const stage = Math.max(0, Math.min(4, newStage));
+        const mult = CONFIG.STAGE_MULTIPLIERS[stage] || 1.0;
+        const threshold = mult / 1.5;
+        const playerZ = this.position + CONFIG.CAMERA_HEIGHT;
+        const trackLen = (this.segments && this.segments.length) ? this.segments.length * CONFIG.SEGMENT_LENGTH : 400000;
+
+        for (const car of this.allCars) {
+            if (car.r < threshold) {
+                if (car.active) {
+                    // Stays active
+                } else {
+                    let dist = car.z - playerZ;
+                    if (dist < -trackLen / 2) dist += trackLen;
+                    if (dist > trackLen / 2) dist -= trackLen;
+                    if (Math.abs(dist) > 600 || this.gameState !== STATE.RACING) {
+                        car.active = true;
+                    }
+                }
+            } else {
+                car.active = false;
+            }
+        }
+
+        const activeCount = this.allCars.filter(c => c.active).length;
+        if (stage !== this.stage || forceLog || !this._stageInitialized) {
+            console.log(`[TRAFFIC] Stage changed to ${stage} (mult ${mult}): ${activeCount} active cars`);
+        }
+        this.stage = stage;
+        this._stageInitialized = true;
     }
 
     addSprite(segmentIndex, offset, type) {
@@ -709,6 +759,7 @@ class Game {
         this.subject = subject || 'python';
         this.quizRun = Quiz.startRun(this.subject);
         this.checkpointIndex = 0;
+        this.setStage(0);
         this.graceTime = 0;
         safeSfx('init');
         this.gameState = STATE.RACING;
@@ -739,6 +790,7 @@ class Game {
         this.hitFlashUntil = 0;
         // Quiz reset
         this.checkpointIndex = 0;
+        this.setStage(0);
         this.graceTime = 0;
         this.currentQuestion = null;
         this.quizAnswerLocked = false;
@@ -1011,6 +1063,7 @@ class Game {
                 this.checkpointIndex++;
                 const cpEl = document.getElementById('checkpointVal');
                 if (cpEl) cpEl.textContent = `Q ${this.checkpointIndex}/4`;
+                this.setStage(this.checkpointIndex);
                 this._showQuiz();
             }
         }
@@ -1314,11 +1367,26 @@ class Game {
         const carsToMove = [];
         const playerZ = this.position + CONFIG.CAMERA_HEIGHT;
         const trackLen = this.segments.length * CONFIG.SEGMENT_LENGTH;
+        const threshold = (CONFIG.STAGE_MULTIPLIERS[this.stage] || 1.0) / 1.5;
 
         for (let i = 0; i < this.segments.length; i++) {
             const segment = this.segments[i];
             for (let j = 0; j < segment.cars.length; j++) {
                 const car = segment.cars[j];
+
+                // Inactive cars are not drawn, not updated, and cannot hit the player
+                if (!car.active) {
+                    if (car.r < threshold) {
+                        let dist = car.z - playerZ;
+                        if (dist < -trackLen / 2) dist += trackLen;
+                        if (dist > trackLen / 2) dist -= trackLen;
+                        if (Math.abs(dist) > 600) {
+                            car.active = true;
+                        }
+                    }
+                    if (!car.active) continue;
+                }
+
                 car.z += car.speed * dt;
                 if (car.z > trackLen) car.z -= trackLen;
                 if (car.z < 0) car.z += trackLen;
@@ -1420,6 +1488,7 @@ class Game {
             const segment = this.segments[(baseSegment.index + n) % this.segments.length];
 
             for (const car of segment.cars) {
+                if (!car.active) continue;
                 const scale = segment.p1.screen.w;
                 if (scale > 5) this.renderCar(segment.p1.screen.x + scale * car.offset, segment.p1.screen.y, scale, car);
             }
