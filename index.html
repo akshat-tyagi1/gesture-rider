@@ -207,6 +207,19 @@
         <button id="start-btn" class="btn" disabled>Loading AI...</button>
         <div id="loading-msg">Initializing MediaPipe Hands...</div>
     </div>
+
+    <!-- Organizer reset modal (PLAN §10) -->
+    <div id="organizer-modal" class="hidden">
+        <div class="organizer-modal-content">
+            <h3 id="organizer-modal-title">Reset Leaderboard</h3>
+            <p id="organizer-modal-msg">Type RESET to erase the leaderboard:</p>
+            <input type="text" id="organizer-reset-input" placeholder="Type RESET" autocomplete="off">
+            <div class="organizer-modal-actions">
+                <button type="button" id="organizer-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="organizer-confirm-btn" class="btn">Confirm</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Question Banks (must load before quiz.js) -->
@@ -218,6 +231,9 @@
 <!-- Quiz & Storage -->
 <script src="quiz.js"></script>
 <script src="storage.js"></script>
+
+<!-- Audio -->
+<script src="audio.js"></script>
 
 <!-- Game Script -->
 <script src="game.js"></script>

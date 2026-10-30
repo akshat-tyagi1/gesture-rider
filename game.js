@@ -92,110 +92,16 @@ function makeLCG(seed) {
 
 /**
  * ------------------------------------------------------------------
- * AUDIO ENGINE (Synthesized) — unchanged from baseline
+ * AUDIO INTERFACE (Safe Sfx wrapper)
  * ------------------------------------------------------------------
  */
-class AudioController {
-    constructor() {
-        this.ctx = null;
-        this.engineOsc = null;
-        this.engineGain = null;
-        this.windNode = null;
-        this.windGain = null;
-        this.initialized = false;
-    }
-
-    init() {
-        if (this.initialized) return;
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AudioContext();
-
-        this.engineOsc = this.ctx.createOscillator();
-        this.engineOsc.type = 'sawtooth';
-        this.engineOsc.frequency.value = 100;
-
-        this.engineFilter = this.ctx.createBiquadFilter();
-        this.engineFilter.type = 'lowpass';
-        this.engineFilter.frequency.value = 400;
-
-        this.engineGain = this.ctx.createGain();
-        this.engineGain.gain.value = 0;
-
-        this.engineOsc.connect(this.engineFilter);
-        this.engineFilter.connect(this.engineGain);
-        this.engineGain.connect(this.ctx.destination);
-        this.engineOsc.start();
-
-        const bufferSize = 2 * this.ctx.sampleRate;
-        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const output = noiseBuffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
-
-        this.windNode = this.ctx.createBufferSource();
-        this.windNode.buffer = noiseBuffer;
-        this.windNode.loop = true;
-
-        this.windGain = this.ctx.createGain();
-        this.windGain.gain.value = 0;
-
-        const windFilter = this.ctx.createBiquadFilter();
-        windFilter.type = 'highpass';
-        windFilter.frequency.value = 800;
-
-        this.windNode.connect(windFilter);
-        windFilter.connect(this.windGain);
-        this.windGain.connect(this.ctx.destination);
-        this.windNode.start();
-
-        this.initialized = true;
-    }
-
-    update(speedRatio) {
-        if (!this.initialized) return;
-        const r = Math.max(0, Math.min(1, speedRatio));
-        const targetFreq = 80 + (r * 220);
-        this.engineOsc.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.1);
-        this.engineFilter.frequency.setTargetAtTime(400 + (r * 1000), this.ctx.currentTime, 0.1);
-        this.engineGain.gain.setTargetAtTime(0.1 + r * 0.2, this.ctx.currentTime, 0.1);
-        this.windGain.gain.setTargetAtTime(r > 0.5 ? (r - 0.5) * 2 * 0.3 : 0, this.ctx.currentTime, 0.1);
-    }
-
-    playCrash() {
-        if (!this.initialized) return;
-        const t = this.ctx.currentTime;
-        const bufferSize = this.ctx.sampleRate * 2;
-        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-
-        const noise = this.ctx.createBufferSource();
-        noise.buffer = buffer;
-
-        const noiseFilter = this.ctx.createBiquadFilter();
-        noiseFilter.type = 'lowpass';
-        noiseFilter.frequency.setValueAtTime(1000, t);
-        noiseFilter.frequency.exponentialRampToValueAtTime(100, t + 1);
-
-        const noiseGain = this.ctx.createGain();
-        noiseGain.gain.setValueAtTime(1, t);
-        noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
-
-        noise.connect(noiseFilter);
-        noiseFilter.connect(noiseGain);
-        noiseGain.connect(this.ctx.destination);
-        noise.start(t);
-        noise.stop(t + 2);
-
-        this.engineGain.gain.cancelScheduledValues(t);
-        this.engineGain.gain.setValueAtTime(this.engineGain.gain.value, t);
-        this.engineGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-        this.windGain.gain.cancelScheduledValues(t);
-        this.windGain.gain.setValueAtTime(this.windGain.gain.value, t);
-        this.windGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-    }
-
-    resume() {
-        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+function safeSfx(method, ...args) {
+    if (typeof Sfx !== 'undefined' && Sfx && typeof Sfx[method] === 'function') {
+        try {
+            Sfx[method](...args);
+        } catch (e) {
+            // safe fail if audio is unavailable
+        }
     }
 }
 
@@ -217,7 +123,23 @@ class InputSystem {
         this.lastHandTime = 0;
         this.TRACKING_TIMEOUT = 300;
 
+        window.addEventListener('pointerdown', () => {
+            if (this.game) this.game.registerActivity();
+        }, { passive: true });
+
         window.addEventListener('keydown', (e) => {
+            if (this.game) this.game.registerActivity();
+
+            // Organizer reset shortcut (PLAN §10): Ctrl+Shift+L on menu or results screens
+            if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l' || e.code === 'KeyL')) {
+                if (this.game && (this.game.gameState === STATE.MENU || this.game.gameState === STATE.FINISHED || this.game.gameState === STATE.WASTED)) {
+                    e.preventDefault();
+                    this.game.openOrganizerModal();
+                    return;
+                }
+            }
+
+            if (this.game && this.game.isOrganizerModalOpen) return;
             if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
             if (this.game && this.game.gameState === STATE.MENU) return;
             this.keys[e.code] = true;
@@ -226,6 +148,7 @@ class InputSystem {
             }
         });
         window.addEventListener('keyup', (e) => {
+            if (this.game && this.game.isOrganizerModalOpen) return;
             if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
             if (this.game && this.game.gameState === STATE.MENU) return;
             this.keys[e.code] = false;
@@ -270,6 +193,7 @@ class InputSystem {
             this.processGesture(landmarks);
             this.gesture.active = true;
             this.lastHandTime = Date.now();
+            if (this.game) this.game.registerActivity();
             const s = document.getElementById('g-status');
             if (s) { s.textContent = 'Tracking'; s.style.color = '#00ff88'; }
         } else {
@@ -448,11 +372,12 @@ class Game {
         this.canvas.height = this.height;
 
         this.input = new InputSystem(this);
-        this.audio = new AudioController();
         this.particles = new ParticleSystem(this.ctx, this.width, this.height);
 
         this.gameState = STATE.MENU;
         this.loopRunning = false;
+        this.lastInputTime = performance.now();
+        this.isOrganizerModalOpen = false;
 
         // Race state
         this.position = 0;
@@ -494,7 +419,7 @@ class Game {
         this.trackingLostEl = document.getElementById('tracking-lost-msg');
 
         this.step = this.step.bind(this);
-        this.lastTime = 0;
+        this.lastTime = performance.now();
 
         document.getElementById('restart-btn').addEventListener('click', () => this.restart());
         const nextPlayerBtn = document.getElementById('next-player-btn');
@@ -515,7 +440,44 @@ class Game {
         this._onQuizKey = this._onQuizKey.bind(this);
         window.addEventListener('keydown', this._onQuizKey);
 
+        // --- Organizer modal listeners (PLAN §10) ---
+        const organizerCancelBtn = document.getElementById('organizer-cancel-btn');
+        if (organizerCancelBtn) {
+            organizerCancelBtn.addEventListener('click', () => this.closeOrganizerModal());
+        }
+        const organizerConfirmBtn = document.getElementById('organizer-confirm-btn');
+        if (organizerConfirmBtn) {
+            organizerConfirmBtn.addEventListener('click', () => {
+                const inputEl = document.getElementById('organizer-reset-input');
+                if (inputEl && inputEl.value.trim() === 'RESET') {
+                    if (typeof Store !== 'undefined' && Store.reset) Store.reset();
+                    this.renderLeaderboard();
+                    this.closeOrganizerModal();
+                }
+            });
+        }
+        const organizerInput = document.getElementById('organizer-reset-input');
+        if (organizerInput) {
+            organizerInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this.closeOrganizerModal();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (organizerInput.value.trim() === 'RESET') {
+                        if (typeof Store !== 'undefined' && Store.reset) Store.reset();
+                        this.renderLeaderboard();
+                        this.closeOrganizerModal();
+                    }
+                }
+            });
+        }
+
         this.renderLeaderboard();
+
+        // Start single RAF loop
+        this.loopRunning = true;
+        requestAnimationFrame(this.step);
     }
 
     _buildMountains() {
@@ -622,6 +584,99 @@ class Game {
         return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9);
     }
 
+    registerActivity() {
+        this.lastInputTime = performance.now();
+        const idleWarning = document.getElementById('idle-warning');
+        if (idleWarning && !idleWarning.classList.contains('hidden')) {
+            idleWarning.classList.add('hidden');
+        }
+    }
+
+    openOrganizerModal() {
+        this.isOrganizerModalOpen = true;
+        const modal = document.getElementById('organizer-modal');
+        const titleEl = document.getElementById('organizer-modal-title');
+        const msgEl = document.getElementById('organizer-modal-msg');
+        const inputEl = document.getElementById('organizer-reset-input');
+
+        if (titleEl) titleEl.textContent = 'Reset Leaderboard';
+        if (msgEl) msgEl.textContent = 'Type RESET to erase the leaderboard:';
+        if (inputEl) inputEl.value = '';
+        if (modal) modal.classList.remove('hidden');
+        if (inputEl) {
+            setTimeout(() => inputEl.focus(), 50);
+        }
+        this.registerActivity();
+    }
+
+    closeOrganizerModal() {
+        this.isOrganizerModalOpen = false;
+        const modal = document.getElementById('organizer-modal');
+        const inputEl = document.getElementById('organizer-reset-input');
+        if (inputEl) inputEl.blur();
+        if (modal) modal.classList.add('hidden');
+        this.registerActivity();
+    }
+
+    returnToMenu() {
+        const idleWarning = document.getElementById('idle-warning');
+        if (idleWarning) idleWarning.classList.add('hidden');
+        document.getElementById('game-over-screen').classList.add('hidden');
+        document.getElementById('quiz-screen').classList.add('hidden');
+        document.getElementById('countdown-screen').classList.add('hidden');
+        document.getElementById('overlay-screen').classList.remove('hidden');
+        if (this.trackingLostEl) this.trackingLostEl.style.display = 'none';
+
+        this.closeOrganizerModal();
+
+        this.resetRoad();
+        this.speed = 0;
+        this.score = 0;
+        this.distanceRun = 0;
+        this.position = 0;
+        this.playerX = 0;
+        this.lives = CONFIG.START_LIVES;
+        this.coinsCollected = 0;
+        this.hitFlashUntil = 0;
+        this.graceTime = 0;
+        this.checkpointIndex = 0;
+        this.currentQuestion = null;
+        this.quizAnswerLocked = false;
+        this.quizChosenIndex = -1;
+        this.feedbackStartTime = 0;
+        this.countdownStartTime = 0;
+        this.countdownNum = 3;
+        this.quizRun = null;
+        this.lastSteer = 0;
+        this.runId = this.generateRunId();
+
+        safeSfx('engineStop');
+
+        const scoreVal = document.getElementById('scoreVal');
+        if (scoreVal) scoreVal.textContent = '0';
+        const distVal = document.getElementById('distVal');
+        if (distVal) distVal.textContent = '0.0';
+        const speedVal = document.getElementById('speedVal');
+        if (speedVal) speedVal.textContent = '0';
+        const cpEl = document.getElementById('checkpointVal');
+        if (cpEl) cpEl.textContent = 'Q 0/4';
+        const livesVal = document.getElementById('livesVal');
+        if (livesVal) livesVal.textContent = '❤️❤️❤️';
+
+        this.input.keys = {};
+        this.input.keyboardSteer = 0;
+        this.input.gesture.tilt = 0;
+        this.input.gesture.throttle = 0;
+        this.input.gesture.brake = 0;
+
+        const nameInput = document.getElementById('player-name');
+        if (nameInput) nameInput.value = '';
+
+        this.gameState = STATE.MENU;
+        this.renderLeaderboard();
+        this.registerActivity();
+    }
+
     nextPlayer() {
         document.getElementById('game-over-screen').classList.add('hidden');
         document.getElementById('overlay-screen').classList.remove('hidden');
@@ -630,6 +685,8 @@ class Game {
         this.gameState = STATE.MENU;
         this.lastSteer = 0;
         this.runId = this.generateRunId();
+        safeSfx('engineStop');
+        this.registerActivity();
     }
 
     renderLeaderboard() {
@@ -653,13 +710,14 @@ class Game {
         this.quizRun = Quiz.startRun(this.subject);
         this.checkpointIndex = 0;
         this.graceTime = 0;
-        this.audio.init();
+        safeSfx('init');
         this.gameState = STATE.RACING;
         this.lastSteer = 0;
         this.runId = this.generateRunId();
         this.input.keys = {};
         this.input.keyboardSteer = 0;
         this.lastTime = performance.now();
+        this.registerActivity();
         if (!this.loopRunning) {
             this.loopRunning = true;
             requestAnimationFrame(this.step);
@@ -692,12 +750,13 @@ class Game {
         const cpEl = document.getElementById('checkpointVal');
         if (cpEl) cpEl.textContent = 'Q 0/4';
         this.lastTime = performance.now();
-        this.audio.resume();
-        this.audio.update(0);
+        safeSfx('init');
+        safeSfx('engineStop');
         this.lastSteer = 0;
         this.runId = this.generateRunId();
         this.input.keys = {};
         this.input.keyboardSteer = 0;
+        this.registerActivity();
         this.gameState = STATE.RACING;
     }
 
@@ -720,7 +779,7 @@ class Game {
         this.addScore(-CONFIG.CRASH_PENALTY);
         this.speed *= CONFIG.HIT_SPEED_FACTOR;
         this.hitFlashUntil = Date.now() + CONFIG.HIT_FLASH_MS;
-        this.audio.playCrash();
+        safeSfx('crash');
         this._showScoreFloat(`-${CONFIG.CRASH_PENALTY}`, false);
         this._updateHUD();
 
@@ -737,6 +796,7 @@ class Game {
         this.gameState = state;
         this.speed = 0;
         this.lastSteer = 0;
+        safeSfx('engineStop');
 
         const quizStats = this.quizRun ? this.quizRun.stats() : { answered: 0, correct: 0, timeouts: 0, accuracyPct: 0 };
         const submitArgs = {
@@ -785,6 +845,8 @@ class Game {
      * wasted — transition to WASTED state.
      */
     wasted() {
+        safeSfx('wasted');
+        safeSfx('engineStop');
         this.endRun('WASTED', STATE.WASTED);
     }
 
@@ -796,13 +858,43 @@ class Game {
     }
 
     update(dt) {
+        // --- Inactivity Tracking (PLAN §5) ---
+        if (this.gameState === STATE.QUIZ || this.gameState === STATE.FEEDBACK || this.gameState === STATE.COUNTDOWN) {
+            // Never count or trigger during QUIZ, FEEDBACK, COUNTDOWN; reset timer when those states end.
+            this.lastInputTime = performance.now();
+            const idleWarning = document.getElementById('idle-warning');
+            if (idleWarning && !idleWarning.classList.contains('hidden')) {
+                idleWarning.classList.add('hidden');
+            }
+        } else if (
+            this.gameState === STATE.MENU ||
+            this.gameState === STATE.WASTED ||
+            this.gameState === STATE.FINISHED ||
+            this.gameState === STATE.RACING
+        ) {
+            const idleElapsed = performance.now() - this.lastInputTime;
+            const idleWarning = document.getElementById('idle-warning');
+            if (idleElapsed >= 60000) {
+                this.returnToMenu();
+                return;
+            } else if (idleElapsed >= 45000) {
+                if (idleWarning && idleWarning.classList.contains('hidden')) {
+                    idleWarning.classList.remove('hidden');
+                }
+            } else {
+                if (idleWarning && !idleWarning.classList.contains('hidden')) {
+                    idleWarning.classList.add('hidden');
+                }
+            }
+        }
+
         if (this.gameState !== STATE.RACING) {
             this.lastSteer = 0;
+            safeSfx('engineStop');
         }
 
         // --- QUIZ state: drive timer from performance.now() ---
         if (this.gameState === STATE.QUIZ) {
-            this.audio.update(0);
             if (this.trackingLostEl) this.trackingLostEl.style.display = 'none';
             if (this.currentQuestion) {
                 const elapsed = (performance.now() - this.quizStartTime) / 1000;
@@ -819,6 +911,7 @@ class Game {
                     this.quizRun.record('timeout');
                     this.addScore(-CONFIG.QUIZ_WRONG_PENALTY);
                     this._showScoreFloat(`-${CONFIG.QUIZ_WRONG_PENALTY}`, false);
+                    safeSfx('wrong');
                     this._startFeedback('TIME UP');
                 }
             }
@@ -827,7 +920,6 @@ class Game {
 
         // --- FEEDBACK state: auto-dismiss after 6 s ---
         if (this.gameState === STATE.FEEDBACK) {
-            this.audio.update(0);
             if (this.trackingLostEl) this.trackingLostEl.style.display = 'none';
             if (performance.now() - this.feedbackStartTime >= CONFIG.QUIZ_FEEDBACK_AUTO_MS) {
                 this._startCountdown();
@@ -837,7 +929,6 @@ class Game {
 
         // --- COUNTDOWN state: 3-2-1 ---
         if (this.gameState === STATE.COUNTDOWN) {
-            this.audio.update(0);
             if (this.trackingLostEl) this.trackingLostEl.style.display = 'none';
             const elapsed = (performance.now() - this.countdownStartTime) / 1000;
             const num = CONFIG.COUNTDOWN_SECONDS - Math.floor(elapsed);
@@ -845,6 +936,7 @@ class Game {
                 this.countdownNum = num;
                 const cdEl = document.getElementById('countdown-num');
                 if (cdEl) cdEl.textContent = num;
+                safeSfx('tick');
             }
             if (elapsed >= CONFIG.COUNTDOWN_SECONDS) {
                 this._resumeRacing();
@@ -865,7 +957,7 @@ class Game {
         const cmd = this.input.getCommand();
         this.lastSteer = cmd.steer;
         const ratio = this.speed / CONFIG.MAX_SPEED;
-        this.audio.update(ratio);
+        safeSfx('engineUpdate', ratio);
 
         if (cmd.accel > 0) this.speed += CONFIG.ACCEL * cmd.accel * dt * 60;
         else if (cmd.brake > 0) this.speed += CONFIG.BRAKING * dt * 60;
@@ -935,6 +1027,9 @@ class Game {
      */
     _showQuiz() {
         this.gameState = STATE.QUIZ;
+        safeSfx('engineStop');
+        safeSfx('quizOpen');
+
         const q = this.quizRun.nextQuestion(this.checkpointIndex);
         this.currentQuestion = q;
         this.quizStartTime = performance.now();
@@ -988,13 +1083,15 @@ class Game {
         // Record in quiz.js
         this.quizRun.record(correct ? 'correct' : 'wrong');
 
-        // Score
+        // Score & sound
         if (correct) {
             this.addScore(CONFIG.QUIZ_CORRECT_SCORE);
             this._showScoreFloat(`+${CONFIG.QUIZ_CORRECT_SCORE}`, true);
+            safeSfx('correct');
         } else {
             this.addScore(-CONFIG.QUIZ_WRONG_PENALTY);
             this._showScoreFloat(`-${CONFIG.QUIZ_WRONG_PENALTY}`, false);
+            safeSfx('wrong');
         }
 
         // Mark buttons
@@ -1048,6 +1145,9 @@ class Game {
         this.countdownStartTime = performance.now();
         this.countdownNum = CONFIG.COUNTDOWN_SECONDS;
 
+        safeSfx('engineStop');
+        safeSfx('tick');
+
         document.getElementById('quiz-screen').classList.add('hidden');
         const cdEl = document.getElementById('countdown-num');
         if (cdEl) cdEl.textContent = this.countdownNum;
@@ -1075,12 +1175,16 @@ class Game {
         this.graceTime = CONFIG.GRACE_DURATION;
 
         this.gameState = STATE.RACING;
+        safeSfx('go');
+        this.registerActivity();
     }
 
     /**
      * _onQuizKey — keydown handler for quiz answers and feedback dismiss.
      */
     _onQuizKey(e) {
+        if (this.isOrganizerModalOpen) return;
+        this.registerActivity();
         if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
 
         // Prevent Space/Enter from scrolling/triggering
@@ -1193,6 +1297,7 @@ class Game {
                         this.coinsCollected++;
                         this.addScore(CONFIG.COIN_SCORE);
                         this._showScoreFloat(`+${CONFIG.COIN_SCORE}`, true);
+                        safeSfx('coin');
                     }
                 }
             }
@@ -1600,8 +1705,14 @@ window.onload = () => {
         }
     })();
 
-    startBtn.addEventListener('click', () => startGame(getPlayerName(), selectedSubject));
+    startBtn.addEventListener('click', () => {
+        safeSfx('init');
+        startGame(getPlayerName(), selectedSubject);
+    });
     if (quickStartBtn) {
-        quickStartBtn.addEventListener('click', () => startGame('Rider', 'python'));
+        quickStartBtn.addEventListener('click', () => {
+            safeSfx('init');
+            startGame('Rider', 'python');
+        });
     }
 };

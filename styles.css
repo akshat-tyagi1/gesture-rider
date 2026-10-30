@@ -954,6 +954,97 @@ h2 {
     50% { opacity: 1; }
 }
 
+/* Organizer Reset Modal (PLAN §10) */
+#organizer-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.organizer-modal-content {
+    background: var(--bg-charcoal);
+    border: 2px solid var(--accent-yellow);
+    border-radius: 14px;
+    padding: 24px 30px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 30px var(--accent-yellow-glow);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    text-align: center;
+}
+
+#organizer-modal-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--accent-yellow);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+#organizer-modal-msg {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+#organizer-reset-input {
+    width: 100%;
+    padding: 10px 14px;
+    background: #111;
+    border: 2px solid var(--surface-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 700;
+    font-family: ui-monospace, Menlo, monospace;
+    text-align: center;
+    outline: none;
+    letter-spacing: 2px;
+    transition: border-color 0.2s ease;
+}
+
+#organizer-reset-input:focus {
+    border-color: var(--accent-yellow);
+}
+
+.organizer-modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 6px;
+}
+
+.organizer-modal-actions .btn {
+    padding: 10px 24px;
+    font-size: 14px;
+    border-radius: 8px;
+}
+
+.organizer-modal-actions .btn-secondary {
+    background: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--surface-border);
+    box-shadow: none;
+}
+
+.organizer-modal-actions .btn-secondary:hover {
+    background: var(--surface-light);
+    color: var(--accent-yellow);
+}
+
 /* Responsive adjustments (1366x768 and smaller screens) */
 @media (max-width: 1366px) {
     h1 { font-size: 48px; }
