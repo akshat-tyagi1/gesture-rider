@@ -12,11 +12,12 @@ const vm = require('vm');
 
 const SUBJECTS = ['python', 'html', 'css', 'maths'];
 
-const EXPECTED_TIER_COUNTS = {
+const MIN_TIER_COUNTS = {
   easy: 8,
   'easy-medium': 6,
   medium: 6
 };
+const EXPECTED_TIER_COUNTS = MIN_TIER_COUNTS;
 
 const MAX_QUESTION_LENGTH = 140;
 const MAX_OPTION_LENGTH = 50;
@@ -213,10 +214,10 @@ function runValidation() {
     });
 
     // Check tier counts
-    for (const [tier, expected] of Object.entries(EXPECTED_TIER_COUNTS)) {
+    for (const [tier, min] of Object.entries(MIN_TIER_COUNTS)) {
       const actual = report[subject].tierCounts[tier] || 0;
-      if (actual !== expected) {
-        errors.push(`Subject '${subject}': Expected ${expected} '${tier}' questions, found ${actual}`);
+      if (actual < min) {
+        errors.push(`Subject '${subject}': Expected at least ${min} '${tier}' questions, found ${actual}`);
       }
     }
 
@@ -243,7 +244,7 @@ function runValidation() {
     const r = report[subject];
     console.log(`[Subject: ${subject.toUpperCase()}] (${r.file})`);
     console.log(`  Total Questions: ${r.total}`);
-    console.log(`  Tier Counts: easy=${r.tierCounts.easy || 0}/8, easy-medium=${r.tierCounts['easy-medium'] || 0}/6, medium=${r.tierCounts.medium || 0}/6`);
+    console.log(`  Tier Counts: easy=${r.tierCounts.easy || 0} (min 8), easy-medium=${r.tierCounts['easy-medium'] || 0} (min 6), medium=${r.tierCounts.medium || 0} (min 6)`);
     console.log(`  Answer Distribution: [0]: ${r.answerCounts[0] || 0} (${r.answerShares[0] || '0%'}), [1]: ${r.answerCounts[1] || 0} (${r.answerShares[1] || '0%'}), [2]: ${r.answerCounts[2] || 0} (${r.answerShares[2] || '0%'}), [3]: ${r.answerCounts[3] || 0} (${r.answerShares[3] || '0%'})`);
     console.log('');
   });

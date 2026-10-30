@@ -191,25 +191,26 @@ test('a 4-checkpoint run never picks the same question twice', () => {
 });
 
 test('exhausting all 20 questions in a subject yields 20 unique questions', () => {
-  const { Quiz } = createQuizContext();
+  const { Quiz, QUESTION_BANKS } = createQuizContext();
+  const bankSize = QUESTION_BANKS.python.length;
   const run = Quiz.startRun('python');
   const seenIds = new Set();
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < bankSize; i++) {
     const cp = (i % 4) + 1;
     const q = run.nextQuestion(cp);
     assert.ok(!seenIds.has(q.id), `Duplicate question ${q.id} picked at step ${i}`);
     seenIds.add(q.id);
   }
-  assert.strictEqual(seenIds.size, 20);
+  assert.strictEqual(seenIds.size, bankSize);
 
-  // 21st question must throw since all 20 are used
+  // Next question must throw since all questions in the bank are used
   assert.throws(
     () => run.nextQuestion(1),
     /No available questions remaining/
   );
 
-  // New run starts fresh with all 20 questions available
+  // New run starts fresh with all questions available
   const freshRun = Quiz.startRun('python');
   assert.doesNotThrow(() => freshRun.nextQuestion(1));
 });
