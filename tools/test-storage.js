@@ -81,33 +81,39 @@ function runTest(name, fn) {
     fn();
     console.log(`  PASS: ${name}`);
   } catch (err) {
+    failedTests++;
     console.error(`  ERROR in "${name}":`, err.message);
   }
 }
 
 // 4. Test Suites
 
-// Suite 1: Sorting by score desc
-runTest('Sorting leaderboard by score descending', () => {
-  Store.submit({ runId: 'r1', name: 'Rider1', score: 100, coins: 5 });
-  Store.submit({ runId: 'r2', name: 'Rider2', score: 300, coins: 2 });
-  Store.submit({ runId: 'r3', name: 'Rider3', score: 200, coins: 10 });
+// Suite 1: Sorting by score desc & mixed runs
+runTest('Sorting leaderboard by score descending and storing subjects array', () => {
+  Store.submit({ runId: 'r1', name: 'Rider1', score: 100, coins: 5, subjects: ['python'] });
+  Store.submit({ runId: 'r2', name: 'Rider2', score: 300, coins: 2, subjects: ['html', 'css'] });
+  Store.submit({ runId: 'r3', name: 'Rider3', score: 200, coins: 10, subjects: ['maths'] });
 
   const board = Store.load();
   assertEqual(board.length, 3, 'Board should contain 3 entries');
   assertEqual(board[0].name, 'Rider2', 'First should be Rider2 (score 300)');
   assertEqual(board[0].score, 300, 'First score should be 300');
+  assertDeepEqual(board[0].subjects, ['html', 'css'], 'First subjects should be ["html", "css"]');
+
   assertEqual(board[1].name, 'Rider3', 'Second should be Rider3 (score 200)');
   assertEqual(board[1].score, 200, 'Second score should be 200');
+  assertDeepEqual(board[1].subjects, ['maths'], 'Second subjects should be ["maths"]');
+
   assertEqual(board[2].name, 'Rider1', 'Third should be Rider1 (score 100)');
   assertEqual(board[2].score, 100, 'Third score should be 100');
+  assertDeepEqual(board[2].subjects, ['python'], 'Third subjects should be ["python"]');
 });
 
 // Suite 2: Tie-break by coins desc
 runTest('Tie-break by coins when scores are equal', () => {
-  const res1 = Store.submit({ runId: 'c1', name: 'LowCoin', score: 250, coins: 5, subject: 'python' });
-  const res2 = Store.submit({ runId: 'c2', name: 'HighCoin', score: 250, coins: 20, subject: 'python' });
-  const res3 = Store.submit({ runId: 'c3', name: 'MidCoin', score: 250, coins: 12, subject: 'python' });
+  const res1 = Store.submit({ runId: 'c1', name: 'LowCoin', score: 250, coins: 5, subjects: ['python'] });
+  const res2 = Store.submit({ runId: 'c2', name: 'HighCoin', score: 250, coins: 20, subjects: ['python', 'maths'] });
+  const res3 = Store.submit({ runId: 'c3', name: 'MidCoin', score: 250, coins: 12, subjects: ['python'] });
 
   assertEqual(res1.rank, 1, 'First entry at 250 was temporarily rank 1');
   assertEqual(res2.rank, 1, 'HighCoin (20 coins) takes rank 1');
@@ -117,6 +123,8 @@ runTest('Tie-break by coins when scores are equal', () => {
   assertEqual(board.length, 3, 'Board has 3 entries');
   assertEqual(board[0].name, 'HighCoin', 'Rank 1 has highest coins (20)');
   assertEqual(board[0].coins, 20, '20 coins');
+  assertDeepEqual(board[0].subjects, ['python', 'maths'], 'Rank 1 has subjects ["python", "maths"]');
+
   assertEqual(board[1].name, 'MidCoin', 'Rank 2 has middle coins (12)');
   assertEqual(board[1].coins, 12, '12 coins');
   assertEqual(board[2].name, 'LowCoin', 'Rank 3 has lowest coins (5)');
@@ -132,7 +140,7 @@ runTest('Top-10 cap and rank assignment', () => {
       name: `Player${i}`,
       score: i * 10,
       coins: i,
-      subject: 'python'
+      subjects: ['python']
     });
     assertEqual(res.rank, 1, `Player${i} submitted with highest score so far, so rank is 1`);
   }
@@ -148,7 +156,7 @@ runTest('Top-10 cap and rank assignment', () => {
     name: 'Underdog',
     score: 15,
     coins: 0,
-    subject: 'maths'
+    subjects: ['maths']
   });
   assertEqual(lowRes.rank, null, 'Score lower than 10th place gets rank null');
 
@@ -162,7 +170,7 @@ runTest('Top-10 cap and rank assignment', () => {
     name: 'Contender',
     score: 55,
     coins: 0,
-    subject: 'css'
+    subjects: ['css']
   });
   assertEqual(displaceRes.rank, 8, 'Score 55 should enter at rank 8');
 
@@ -172,8 +180,8 @@ runTest('Top-10 cap and rank assignment', () => {
   assertEqual(boardAfterDisplace[9].score, 40, 'Previous rank 10 (score 30) was pushed off, new rank 10 is 40');
 });
 
-// Suite 4: Corrupt data handling
-runTest('Survive missing, corrupt or non-array JSON and drop invalid entries', () => {
+// Suite 4: Corrupt data handling, legacy stored entries, and invalid lists
+runTest('Survive missing, corrupt JSON, convert legacy stored entries, and drop bad ones', () => {
   // Test 1: Empty / missing storage
   fakeStorage.clear();
   assertEqual(Store.load().length, 0, 'Missing key returns empty array');
@@ -196,26 +204,34 @@ runTest('Survive missing, corrupt or non-array JSON and drop invalid entries', (
   const mixedEntries = [
     null,
     'not-an-object',
-    { name: '', score: 100, coins: 5, subject: 'python', answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // empty name
-    { name: 'WayTooLongNameHere', score: 100, coins: 5, subject: 'python', answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // name > 12 chars
-    { name: 'GoodGuy', score: -10, coins: 5, subject: 'python', answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // negative score
-    { name: 'GoodGuy', score: 10.5, coins: 5, subject: 'python', answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // float score
-    { name: 'GoodGuy', score: 100, coins: -1, subject: 'python', answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // negative coins
-    { name: 'GoodGuy', score: 100, coins: 5, subject: 'cplusplus', answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // invalid subject
-    { name: 'GoodGuy', score: 100, coins: 5, subject: 'python', answered: -1, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // negative answered
-    { name: 'GoodGuy', score: 100, coins: 5, subject: 'python', answered: 4, correct: 4, timeouts: 0, finished: 'yes', date: '2026-10-29' }, // non-boolean finished
-    { name: 'GoodGuy', score: 100, coins: 5, subject: 'python', answered: 4, correct: 4, timeouts: 0, finished: true, date: '' }, // empty date
-    // Valid entry 1
-    { name: 'ValidOne', score: 150, coins: 10, subject: 'python', answered: 4, correct: 3, timeouts: 1, finished: true, date: '2026-10-29T00:00:00Z' },
-    // Valid entry 2
-    { name: 'ValidTwo', score: 200, coins: 5, subject: 'css', answered: 4, correct: 4, timeouts: 0, finished: false, date: '2026-10-29T00:00:00Z' }
+    { name: '', score: 100, coins: 5, subjects: ['python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // empty name
+    { name: 'WayTooLongNameHere', score: 100, coins: 5, subjects: ['python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // name > 12 chars
+    { name: 'GoodGuy', score: -10, coins: 5, subjects: ['python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // negative score
+    { name: 'GoodGuy', score: 10.5, coins: 5, subjects: ['python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // float score
+    { name: 'GoodGuy', score: 100, coins: -1, subjects: ['python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // negative coins
+    { name: 'GoodGuy', score: 100, coins: 5, subject: 'cplusplus', answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // invalid legacy subject
+    { name: 'GoodGuy', score: 100, coins: 5, subjects: ['cplusplus'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // invalid subjects array
+    { name: 'GoodGuy', score: 100, coins: 5, subjects: [], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // empty subjects array
+    { name: 'GoodGuy', score: 100, coins: 5, subjects: ['python', 'python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // duplicate subjects
+    { name: 'GoodGuy', score: 100, coins: 5, subjects: ['python', 'html', 'css', 'maths', 'python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // > 4 subjects
+    { name: 'GoodGuy', score: 100, coins: 5, answered: 4, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // no subject/subjects
+    { name: 'GoodGuy', score: 100, coins: 5, subjects: ['python'], answered: -1, correct: 4, timeouts: 0, finished: true, date: '2026-10-29' }, // negative answered
+    { name: 'GoodGuy', score: 100, coins: 5, subjects: ['python'], answered: 4, correct: 4, timeouts: 0, finished: 'yes', date: '2026-10-29' }, // non-boolean finished
+    { name: 'GoodGuy', score: 100, coins: 5, subjects: ['python'], answered: 4, correct: 4, timeouts: 0, finished: true, date: '' }, // empty date
+    // Valid entry 1: Legacy stored entry with only "subject" (must be converted to subjects: ['python'])
+    { name: 'LegacyValid', score: 150, coins: 10, subject: 'python', answered: 4, correct: 3, timeouts: 1, finished: true, date: '2026-10-29T00:00:00Z' },
+    // Valid entry 2: Modern stored entry with multi-subject array
+    { name: 'MultiValid', score: 200, coins: 5, subjects: ['css', 'maths'], answered: 4, correct: 4, timeouts: 0, finished: false, date: '2026-10-29T00:00:00Z' }
   ];
 
   fakeStorage.setItem('gestureRider.v1.leaderboard', JSON.stringify(mixedEntries));
   const cleaned = Store.load();
   assertEqual(cleaned.length, 2, 'Only 2 valid entries should survive');
-  assertEqual(cleaned[0].name, 'ValidTwo', 'ValidTwo is first with score 200');
-  assertEqual(cleaned[1].name, 'ValidOne', 'ValidOne is second with score 150');
+  assertEqual(cleaned[0].name, 'MultiValid', 'MultiValid is first with score 200');
+  assertDeepEqual(cleaned[0].subjects, ['css', 'maths'], 'MultiValid has subjects ["css", "maths"]');
+
+  assertEqual(cleaned[1].name, 'LegacyValid', 'LegacyValid is second with score 150');
+  assertDeepEqual(cleaned[1].subjects, ['python'], 'LegacyValid converted from subject to subjects: ["python"]');
 });
 
 // Suite 5: Unavailable localStorage
@@ -248,7 +264,7 @@ runTest('Prevent duplicate submit per runId', () => {
     name: 'RacerA',
     score: 100,
     coins: 5,
-    subject: 'html'
+    subjects: ['html']
   });
   assertEqual(run1.rank, 1, 'First submission of runId succeeds with rank 1');
   assertEqual(run1.isPersonalBest, true, 'First submission sets isPersonalBest: true');
@@ -260,7 +276,7 @@ runTest('Prevent duplicate submit per runId', () => {
     name: 'RacerA',
     score: 999,
     coins: 50,
-    subject: 'html'
+    subjects: ['html']
   });
   assertEqual(dupRun.rank, null, 'Duplicate runId returns rank null');
   assertEqual(dupRun.isPersonalBest, false, 'Duplicate runId isPersonalBest is false');
@@ -278,7 +294,7 @@ runTest('Prevent duplicate submit per runId', () => {
     name: 'RacerA',
     score: 200,
     coins: 10,
-    subject: 'html'
+    subjects: ['html']
   });
   assertEqual(run2.rank, 1, 'New runId succeeds with rank 1');
   assertEqual(run2.isPersonalBest, true, 'New runId sets new personal best');
@@ -354,14 +370,14 @@ runTest('Input sanitization during submit', () => {
     name: '  LongName1234567890  ',
     score: 50,
     coins: 2,
-    subject: 'python'
+    subjects: ['python']
   });
   const board1 = Store.load();
   assertEqual(board1[0].name, 'LongName1234', 'Name trimmed and capped at 12 characters');
 
   // 2. Default name "Rider" when empty, whitespace, or missing
-  Store.submit({ runId: 's2', name: '   ', score: 40, coins: 1, subject: 'html' });
-  Store.submit({ runId: 's3', name: null, score: 30, coins: 1, subject: 'css' });
+  Store.submit({ runId: 's2', name: '   ', score: 40, coins: 1, subjects: ['html'] });
+  Store.submit({ runId: 's3', name: null, score: 30, coins: 1, subjects: ['css'] });
   const board2 = Store.load();
   assertEqual(board2[1].name, 'Rider', 'Whitespace name defaults to "Rider"');
   assertEqual(board2[2].name, 'Rider', 'Null name defaults to "Rider"');
@@ -376,7 +392,7 @@ runTest('Input sanitization during submit', () => {
     correct: -2,
     timeouts: '1',
     finished: true,
-    subject: 'maths'
+    subjects: ['maths']
   });
   const mathEntry = Store.load().find(e => e.name === 'MathCheck');
   assert(!!mathEntry, 'MathCheck entry found');
@@ -386,24 +402,61 @@ runTest('Input sanitization during submit', () => {
   assertEqual(mathEntry.correct, 0, 'Negative correct clamped to 0');
   assertEqual(mathEntry.timeouts, 1, 'Parsed string timeouts to 1');
 
-  // 4. Subject sanitized to allowed values or defaults to python
-  Store.submit({ runId: 's5', name: 'SubjCheck1', score: 10, coins: 0, subject: 'HTML' });
-  Store.submit({ runId: 's6', name: 'SubjCheck2', score: 5, coins: 0, subject: 'invalid_subj' });
-  const subj1 = Store.load().find(e => e.name === 'SubjCheck1');
-  const subj2 = Store.load().find(e => e.name === 'SubjCheck2');
-  assertEqual(subj1.subject, 'html', 'Subject normalized to lowercase');
-  assertEqual(subj2.subject, 'python', 'Invalid subject defaulted to python');
+  // 4. Subjects sanitization: legacy string, array, invalid, empty
+  Store.reset();
+
+  // (a) Legacy string input
+  Store.submit({ runId: 's5', name: 'LegacySubj', score: 100, coins: 0, subject: 'HTML' });
+  const legEntry = Store.load().find(e => e.name === 'LegacySubj');
+  assert(!!legEntry, 'LegacySubj found');
+  assertDeepEqual(legEntry.subjects, ['html'], 'Legacy subject string converted to ["html"]');
+
+  // (b) Legacy invalid string defaults to ["python"]
+  Store.submit({ runId: 's6', name: 'InvalidStr', score: 90, coins: 0, subject: 'invalid_subj' });
+  const invStrEntry = Store.load().find(e => e.name === 'InvalidStr');
+  assert(!!invStrEntry, 'InvalidStr found');
+  assertDeepEqual(invStrEntry.subjects, ['python'], 'Invalid legacy subject string defaulted to ["python"]');
+
+  // (c) Valid multi-subject array
+  Store.submit({ runId: 's7', name: 'MultiSubj', score: 80, coins: 0, subjects: ['CSS', 'Maths'] });
+  const multiEntry = Store.load().find(e => e.name === 'MultiSubj');
+  assert(!!multiEntry, 'MultiSubj found');
+  assertDeepEqual(multiEntry.subjects, ['css', 'maths'], 'Multi-subject array normalized to lowercase');
+
+  // (d) Empty array defaults to ["python"]
+  Store.submit({ runId: 's8', name: 'EmptyArr', score: 70, coins: 0, subjects: [] });
+  const emptyArrEntry = Store.load().find(e => e.name === 'EmptyArr');
+  assert(!!emptyArrEntry, 'EmptyArr found');
+  assertDeepEqual(emptyArrEntry.subjects, ['python'], 'Empty subjects array defaulted to ["python"]');
+
+  // (e) Array with invalid subject defaults to ["python"]
+  Store.submit({ runId: 's9', name: 'BadArr', score: 60, coins: 0, subjects: ['ruby'] });
+  const badArrEntry = Store.load().find(e => e.name === 'BadArr');
+  assert(!!badArrEntry, 'BadArr found');
+  assertDeepEqual(badArrEntry.subjects, ['python'], 'Array with invalid subject defaulted to ["python"]');
+
+  // (f) Array with duplicates defaults to ["python"]
+  Store.submit({ runId: 's10', name: 'DupArr', score: 50, coins: 0, subjects: ['python', 'python'] });
+  const dupArrEntry = Store.load().find(e => e.name === 'DupArr');
+  assert(!!dupArrEntry, 'DupArr found');
+  assertDeepEqual(dupArrEntry.subjects, ['python'], 'Array with duplicate subjects defaulted to ["python"]');
+
+  // (g) Neither subject nor subjects provided defaults to ["python"]
+  Store.submit({ runId: 's11', name: 'NoSubj', score: 40, coins: 0 });
+  const noSubjEntry = Store.load().find(e => e.name === 'NoSubj');
+  assert(!!noSubjEntry, 'NoSubj found');
+  assertDeepEqual(noSubjEntry.subjects, ['python'], 'Missing subject(s) defaulted to ["python"]');
 
   // 5. Finished boolean conversion
-  assertEqual(subj1.finished, false, 'Missing finished defaults to false');
+  assertEqual(legEntry.finished, false, 'Missing finished defaults to false');
 
   // 6. Date is added
-  assert(typeof subj1.date === 'string' && subj1.date.length > 0, 'ISO date automatically added');
+  assert(typeof legEntry.date === 'string' && legEntry.date.length > 0, 'ISO date automatically added');
 });
 
 // Suite 10: Correct localStorage keys used
 runTest('Correct localStorage keys used', () => {
-  Store.submit({ runId: 'k1', name: 'KeyTest', score: 100, coins: 5 });
+  Store.submit({ runId: 'k1', name: 'KeyTest', score: 100, coins: 5, subjects: ['python', 'maths'] });
 
   const rawBoard = fakeStorage.getItem('gestureRider.v1.leaderboard');
   const rawPB = fakeStorage.getItem('gestureRider.v1.pb');
@@ -414,6 +467,7 @@ runTest('Correct localStorage keys used', () => {
   const parsedBoard = JSON.parse(rawBoard);
   assert(Array.isArray(parsedBoard), 'Leaderboard value is a JSON array');
   assertEqual(parsedBoard[0].name, 'KeyTest', 'Leaderboard contains submitted name');
+  assertDeepEqual(parsedBoard[0].subjects, ['python', 'maths'], 'Stored entry contains subjects array');
 
   const parsedPB = JSON.parse(rawPB);
   assertEqual(parsedPB['keytest'], 100, 'PB object contains lowercase key with score');

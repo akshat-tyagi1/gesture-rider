@@ -19,6 +19,7 @@
   };
 
   const TIER_ORDER = ['easy', 'easy-medium', 'medium'];
+  const VALID_SUBJECTS = ['python', 'html', 'css', 'maths'];
 
   /**
    * Helper to resolve the global window object across browser and node/vm contexts.
@@ -56,13 +57,17 @@
   }
 
   /**
-   * QuizRun represents an active quiz run for a subject.
+   * QuizRun represents an active quiz run for one or more subjects.
    */
   class QuizRun {
-    constructor(subject, bank) {
-      this.subject = subject;
-      this._bank = bank;
+    constructor(subjects, banksMap) {
+      this.subjects = [...subjects];
+      this.subject = subjects[0];
+      this._banks = banksMap;
+      this._bank = banksMap[subjects[0]];
       this._usedIds = new Set();
+      this._availableSubjects = [];
+      this._lastSubject = null;
       this._answered = 0;
       this._correct = 0;
       this._wrong = 0;
@@ -71,6 +76,9 @@
 
     /**
      * Pick a question for checkpoint (1-4).
+     * First picks a subject from selected ones: uses each selected subject once
+     * (in random order) before any repeats, and when there is more than one subject
+     * never picks the same subject as the previous checkpoint.
      * Tier mapping: 1, 2 = easy; 3 = easy-medium; 4 = medium.
      * Falls back to the nearest tier if a tier runs out.
      */
@@ -80,11 +88,31 @@
         throw new Error(`Invalid checkpoint: ${checkpoint}. Expected 1, 2, 3, or 4.`);
       }
 
+      // 1. Pick a subject from selected ones
+      if (this._availableSubjects.length === 0) {
+        this._availableSubjects = [...this.subjects];
+      }
+
+      let pool = this._availableSubjects;
+      if (this.subjects.length > 1 && this._lastSubject !== null) {
+        const filtered = pool.filter(s => s !== this._lastSubject);
+        if (filtered.length > 0) {
+          pool = filtered;
+        }
+      }
+
+      const pickedSubject = pool[Math.floor(Math.random() * pool.length)];
+      const idx = this._availableSubjects.indexOf(pickedSubject);
+      this._availableSubjects.splice(idx, 1);
+      this._lastSubject = pickedSubject;
+
+      // 2. Pick question by tier from that subject's bank
+      const bank = this._banks[pickedSubject];
       const targetTier = CHECKPOINT_TIERS[cpNum];
-      const unusedQuestions = this._bank.filter(q => !this._usedIds.has(q.id));
+      const unusedQuestions = bank.filter(q => !this._usedIds.has(q.id));
 
       if (unusedQuestions.length === 0) {
-        throw new Error(`No available questions remaining in question bank for subject "${this.subject}".`);
+        throw new Error(`No available questions remaining in question bank for subject "${pickedSubject}".`);
       }
 
       const targetIndex = TIER_ORDER.indexOf(targetTier);
@@ -116,13 +144,13 @@
       // Shuffle options and map answerIndex
       const { options, answerIndex } = shuffleOptions(picked.options, picked.answer);
 
-      // Time limit: 25 seconds for maths, 15 seconds for others
-      const isMaths = String(this.subject).toLowerCase() === 'maths' ||
-                      (picked.subject && String(picked.subject).toLowerCase() === 'maths');
+      // Time limit: 25 seconds for maths, 15 seconds for others (per question)
+      const isMaths = String(pickedSubject).toLowerCase() === 'maths';
       const timeLimit = isMaths ? 25 : 15;
 
       return {
         id: picked.id,
+        subject: pickedSubject,
         q: picked.q,
         options: options,
         answerIndex: answerIndex,
@@ -176,31 +204,71 @@
     TIER_ORDER,
 
     /**
-     * Start a new quiz run for the given subject.
-     * Uses window.QUESTION_BANKS[subject].
-     * Throws a clear error if the bank is missing.
+     * Start a new quiz run for the given subject(s).
+     * Accepts a string (old behaviour) or an array of 1-4 distinct valid subjects (python, html, css, maths).
+     * Throws a clear error for an empty or invalid list or a missing bank.
      */
-    startRun(subject) {
-      if (!subject || typeof subject !== 'string') {
-        throw new Error(`Subject must be a non-empty string. Received: ${subject}`);
-      }
-
+    startRun(subjectsInput) {
       const win = getWindow();
       const banks = win.QUESTION_BANKS;
       if (!banks || typeof banks !== 'object') {
-        throw new Error(`window.QUESTION_BANKS is missing or undefined.`);
+        throw new Error('window.QUESTION_BANKS is missing or undefined.');
       }
 
-      const bank = banks[subject];
-      if (!bank || !Array.isArray(bank)) {
-        throw new Error(`Question bank for subject "${subject}" is missing or not an array.`);
+      let selectedSubjects = [];
+
+      if (typeof subjectsInput === 'string') {
+        const trimmed = subjectsInput.trim();
+        if (!trimmed) {
+          throw new Error('Subject must be a non-empty string.');
+        }
+        const bank = banks[trimmed];
+        if (!bank || !Array.isArray(bank)) {
+          throw new Error(`Question bank for subject "${trimmed}" is missing or not an array.`);
+        }
+        if (bank.length === 0) {
+          throw new Error(`Question bank for subject "${trimmed}" is empty.`);
+        }
+        selectedSubjects = [trimmed];
+      } else if (Array.isArray(subjectsInput)) {
+        if (subjectsInput.length === 0) {
+          throw new Error('Subjects list cannot be empty.');
+        }
+        if (subjectsInput.length > 4) {
+          throw new Error('Subjects list cannot contain more than 4 subjects.');
+        }
+        const seen = new Set();
+        for (const s of subjectsInput) {
+          if (typeof s !== 'string') {
+            throw new Error(`Invalid subject in list: ${s}. Expected a string.`);
+          }
+          const lower = s.trim().toLowerCase();
+          if (!VALID_SUBJECTS.includes(lower)) {
+            throw new Error(`Invalid subject: "${s}". Allowed subjects are: ${VALID_SUBJECTS.join(', ')}.`);
+          }
+          if (seen.has(lower)) {
+            throw new Error(`Duplicate subject in list: "${s}". Subjects must be distinct.`);
+          }
+          seen.add(lower);
+          const bank = banks[lower];
+          if (!bank || !Array.isArray(bank)) {
+            throw new Error(`Question bank for subject "${lower}" is missing or not an array.`);
+          }
+          if (bank.length === 0) {
+            throw new Error(`Question bank for subject "${lower}" is empty.`);
+          }
+        }
+        selectedSubjects = Array.from(seen);
+      } else {
+        throw new Error(`Subject must be a non-empty string or an array of 1-4 distinct subjects. Received: ${subjectsInput}`);
       }
 
-      if (bank.length === 0) {
-        throw new Error(`Question bank for subject "${subject}" is empty.`);
+      const banksMap = {};
+      for (const s of selectedSubjects) {
+        banksMap[s] = banks[s];
       }
 
-      return new QuizRun(subject, bank);
+      return new QuizRun(selectedSubjects, banksMap);
     }
   };
 

@@ -80,14 +80,72 @@
     return defaultVal;
   }
 
-  function sanitizeSubject(sub) {
-    if (typeof sub === 'string') {
-      const lower = sub.trim().toLowerCase();
-      if (ALLOWED_SUBJECTS.includes(lower)) {
-        return lower;
-      }
+  function sanitizeSubjects(entry) {
+    if (!entry || typeof entry !== 'object') {
+      return ['python'];
     }
-    return 'python';
+
+    if (entry.subjects !== undefined && entry.subjects !== null) {
+      if (!Array.isArray(entry.subjects) || entry.subjects.length === 0 || entry.subjects.length > 4) {
+        return ['python'];
+      }
+      const valid = [];
+      const seen = new Set();
+      for (const s of entry.subjects) {
+        if (typeof s !== 'string') return ['python'];
+        const lower = s.trim().toLowerCase();
+        if (!ALLOWED_SUBJECTS.includes(lower) || seen.has(lower)) {
+          return ['python'];
+        }
+        seen.add(lower);
+        valid.push(lower);
+      }
+      return valid;
+    }
+
+    if (typeof entry.subject === 'string') {
+      const lower = entry.subject.trim().toLowerCase();
+      if (ALLOWED_SUBJECTS.includes(lower)) {
+        return [lower];
+      }
+      return ['python'];
+    }
+
+    return ['python'];
+  }
+
+  function extractValidStoredSubjects(item) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+
+    if (item.subjects !== undefined && item.subjects !== null) {
+      if (!Array.isArray(item.subjects) || item.subjects.length < 1 || item.subjects.length > 4) {
+        return null;
+      }
+      const valid = [];
+      const seen = new Set();
+      for (const s of item.subjects) {
+        if (typeof s !== 'string') return null;
+        const lower = s.trim().toLowerCase();
+        if (!ALLOWED_SUBJECTS.includes(lower) || seen.has(lower)) {
+          return null;
+        }
+        seen.add(lower);
+        valid.push(lower);
+      }
+      return valid;
+    }
+
+    if (typeof item.subject === 'string') {
+      const lower = item.subject.trim().toLowerCase();
+      if (ALLOWED_SUBJECTS.includes(lower)) {
+        return [lower];
+      }
+      return null;
+    }
+
+    return null;
   }
 
   function isValidLeaderboardEntry(item) {
@@ -101,8 +159,8 @@
     if (typeof item.score !== 'number' || !Number.isInteger(item.score) || item.score < 0) return false;
     if (typeof item.coins !== 'number' || !Number.isInteger(item.coins) || item.coins < 0) return false;
 
-    if (typeof item.subject !== 'string') return false;
-    if (!ALLOWED_SUBJECTS.includes(item.subject.trim().toLowerCase())) return false;
+    const validSubjects = extractValidStoredSubjects(item);
+    if (!validSubjects) return false;
 
     if (typeof item.answered !== 'number' || !Number.isInteger(item.answered) || item.answered < 0) return false;
     if (typeof item.correct !== 'number' || !Number.isInteger(item.correct) || item.correct < 0) return false;
@@ -204,11 +262,12 @@
         const validEntries = [];
         for (const item of parsed) {
           if (isValidLeaderboardEntry(item)) {
+            const subjects = extractValidStoredSubjects(item);
             validEntries.push({
               name: item.name.trim(),
               score: item.score,
               coins: item.coins,
-              subject: item.subject.trim().toLowerCase(),
+              subjects: subjects,
               answered: item.answered,
               correct: item.correct,
               timeouts: item.timeouts,
@@ -240,7 +299,7 @@
         const name = sanitizeName(entry.name);
         const score = sanitizeNonNegativeInt(entry.score);
         const coins = sanitizeNonNegativeInt(entry.coins);
-        const subject = sanitizeSubject(entry.subject);
+        const subjects = sanitizeSubjects(entry);
         const answered = sanitizeNonNegativeInt(entry.answered);
         const correct = sanitizeNonNegativeInt(entry.correct);
         const timeouts = sanitizeNonNegativeInt(entry.timeouts);
@@ -289,7 +348,7 @@
           name,
           score,
           coins,
-          subject,
+          subjects,
           answered,
           correct,
           timeouts,
