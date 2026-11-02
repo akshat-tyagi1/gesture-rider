@@ -155,6 +155,7 @@
             <ol id="leaderboard-list"></ol>
         </div>
 
+
         <div class="results-actions">
             <button id="restart-btn" class="btn">TRY AGAIN</button>
             <button id="next-player-btn" class="btn">NEXT PLAYER</button>
@@ -166,23 +167,30 @@
         <h1>GESTURE RIDER</h1>
         <h2>AI Powered Highway Experience</h2>
 
-        <div class="setup-container">
-            <div class="setup-group">
-                <label for="player-name">Rider Name</label>
-                <input id="player-name" type="text" maxlength="12" placeholder="Your name">
-            </div>
-
-            <div class="setup-group">
-                <label>Select Subject</label>
-                <div class="subject-picker">
-                    <button type="button" class="subject-btn selected" data-subject="python">Python</button>
-                    <button type="button" class="subject-btn" data-subject="html">HTML</button>
-                    <button type="button" class="subject-btn" data-subject="css">CSS</button>
-                    <button type="button" class="subject-btn" data-subject="maths">Maths</button>
+        <div class="menu-columns">
+            <div class="setup-container">
+                <div class="setup-group">
+                    <label for="player-name">Rider Name</label>
+                    <input id="player-name" type="text" maxlength="12" placeholder="Your name">
                 </div>
+
+                <div class="setup-group">
+                    <label>Select Subjects</label>
+                    <div class="subject-picker">
+                        <button type="button" class="subject-btn selected" data-subject="python" aria-pressed="true">Python</button>
+                        <button type="button" class="subject-btn" data-subject="html" aria-pressed="false">HTML</button>
+                        <button type="button" class="subject-btn" data-subject="css" aria-pressed="false">CSS</button>
+                        <button type="button" class="subject-btn" data-subject="maths" aria-pressed="false">Maths</button>
+                    </div>
+                </div>
+
+                <button type="button" id="quick-start-btn" class="btn btn-secondary">QUICK START</button>
             </div>
 
-            <button type="button" id="quick-start-btn" class="btn btn-secondary">QUICK START</button>
+            <div class="menu-leaderboard-panel" id="menu-leaderboard-panel">
+                <h3>Top 10</h3>
+                <ol id="menu-leaderboard-list"></ol>
+            </div>
         </div>
 
         <div class="instructions">

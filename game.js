@@ -131,6 +131,11 @@ class InputSystem {
         window.addEventListener('keydown', (e) => {
             if (this.game) this.game.registerActivity();
 
+            // Ignore all game keys (WASD, arrows, number keys, Ctrl+Shift+L) while any input is focused
+            const isInput = (document.activeElement && document.activeElement.matches && document.activeElement.matches('input, textarea, select')) ||
+                            (e.target && e.target.matches && e.target.matches('input, textarea, select'));
+            if (isInput) return;
+
             // Organizer reset shortcut (PLAN §10): Ctrl+Shift+L on menu or results screens
             if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l' || e.code === 'KeyL')) {
                 if (this.game && (this.game.gameState === STATE.MENU || this.game.gameState === STATE.FINISHED || this.game.gameState === STATE.WASTED)) {
@@ -141,7 +146,6 @@ class InputSystem {
             }
 
             if (this.game && this.game.isOrganizerModalOpen) return;
-            if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
             if (this.game && this.game.gameState === STATE.MENU) return;
             this.keys[e.code] = true;
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
@@ -149,8 +153,10 @@ class InputSystem {
             }
         });
         window.addEventListener('keyup', (e) => {
+            const isInput = (document.activeElement && document.activeElement.matches && document.activeElement.matches('input, textarea, select')) ||
+                            (e.target && e.target.matches && e.target.matches('input, textarea, select'));
+            if (isInput) return;
             if (this.game && this.game.isOrganizerModalOpen) return;
-            if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
             if (this.game && this.game.gameState === STATE.MENU) return;
             this.keys[e.code] = false;
         });
@@ -395,7 +401,7 @@ class Game {
 
         // Phase 3 — quiz/checkpoint state
         this.playerName = 'Rider';
-        this.subject = 'python';
+        this.subjects = ['python'];   // array of 1-4 selected subjects
         this.quizRun = null;          // QuizRun from quiz.js
         this.checkpointIndex = 0;     // 0..4 — how many checkpoints reached
         this.graceTime = 0;           // seconds remaining of post-countdown grace
@@ -613,10 +619,6 @@ class Game {
             }
         }
 
-        const activeCount = this.allCars.filter(c => c.active).length;
-        if (stage !== this.stage || forceLog || !this._stageInitialized) {
-            console.log(`[TRAFFIC] Stage changed to ${stage} (mult ${mult}): ${activeCount} active cars`);
-        }
         this.stage = stage;
         this._stageInitialized = true;
     }
@@ -736,28 +738,76 @@ class Game {
         this.lastSteer = 0;
         this.runId = this.generateRunId();
         safeSfx('engineStop');
+        this.renderLeaderboard();
         this.registerActivity();
     }
 
     renderLeaderboard() {
-        const listEl = document.getElementById('leaderboard-list');
+        const entries = (typeof Store !== 'undefined' && Store.load) ? Store.load() : [];
+        this._fillLeaderboardList(document.getElementById('leaderboard-list'), entries);
+        this._fillLeaderboardList(document.getElementById('menu-leaderboard-list'), entries);
+    }
+
+    /**
+     * _fillLeaderboardList — populates a <ol> with leaderboard rows.
+     * Shared renderer for both the results screen and the home-screen panel.
+     * Uses only textContent and createElement; no innerHTML.
+     */
+    _fillLeaderboardList(listEl, entries) {
         if (!listEl) return;
         while (listEl.firstChild) {
             listEl.removeChild(listEl.firstChild);
         }
-        const entries = (typeof Store !== 'undefined' && Store.load) ? Store.load() : [];
-        console.log('[LBDBG] render leaderboard data:', entries);
-        for (const entry of entries) {
+        if (!entries || entries.length === 0) {
             const li = document.createElement('li');
-            li.textContent = `${entry.name} - ${entry.score} pts (${entry.coins} coins)`;
+            const empty = document.createElement('span');
+            empty.className = 'lb-empty';
+            empty.textContent = 'No scores yet';
+            li.appendChild(empty);
             listEl.appendChild(li);
+            return;
         }
+
+        // Subject → short tag mapping
+        const TAG_MAP = { python: 'PY', html: 'HTML', css: 'CSS', maths: 'MATHS' };
+
+        entries.forEach((entry, i) => {
+            const li = document.createElement('li');
+
+            const rankSpan = document.createElement('span');
+            rankSpan.className = 'lb-rank';
+            rankSpan.textContent = (i + 1) + '.';
+            li.appendChild(rankSpan);
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'lb-name';
+            nameSpan.textContent = entry.name;
+            li.appendChild(nameSpan);
+
+            const scoreSpan = document.createElement('span');
+            scoreSpan.className = 'lb-score';
+            scoreSpan.textContent = entry.score + ' pts';
+            li.appendChild(scoreSpan);
+
+            const tagsDiv = document.createElement('div');
+            tagsDiv.className = 'lb-tags';
+            const subjectsArr = Array.isArray(entry.subjects) ? entry.subjects : (entry.subject ? [entry.subject] : ['python']);
+            for (const subj of subjectsArr) {
+                const tag = document.createElement('span');
+                tag.className = 'lb-tag';
+                tag.textContent = TAG_MAP[subj] || subj.toUpperCase();
+                tagsDiv.appendChild(tag);
+            }
+            li.appendChild(tagsDiv);
+
+            listEl.appendChild(li);
+        });
     }
 
-    start(name, subject) {
+    start(name, subjects) {
         this.playerName = name || 'Rider';
-        this.subject = subject || 'python';
-        this.quizRun = Quiz.startRun(this.subject);
+        this.subjects = (Array.isArray(subjects) && subjects.length > 0) ? subjects : ['python'];
+        this.quizRun = Quiz.startRun(this.subjects);
         this.checkpointIndex = 0;
         this.setStage(0);
         this.graceTime = 0;
@@ -798,7 +848,7 @@ class Game {
         this.feedbackStartTime = 0;
         this.countdownStartTime = 0;
         this.countdownNum = 3;
-        this.quizRun = Quiz.startRun(this.subject);
+        this.quizRun = Quiz.startRun(this.subjects);
         const cpEl = document.getElementById('checkpointVal');
         if (cpEl) cpEl.textContent = 'Q 0/4';
         this.lastTime = performance.now();
@@ -856,7 +906,7 @@ class Game {
             name: this.playerName,
             score: Math.floor(this.score),
             coins: this.coinsCollected,
-            subject: this.subject,
+            subjects: this.subjects,
             answered: quizStats.answered,
             correct: quizStats.correct,
             timeouts: quizStats.timeouts,
@@ -1238,7 +1288,9 @@ class Game {
     _onQuizKey(e) {
         if (this.isOrganizerModalOpen) return;
         this.registerActivity();
-        if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return;
+        const isInput = (document.activeElement && document.activeElement.matches && document.activeElement.matches('input, textarea, select')) ||
+                        (e.target && e.target.matches && e.target.matches('input, textarea, select'));
+        if (isInput) return;
 
         // Prevent Space/Enter from scrolling/triggering
         if (e.code === 'Space' || e.code === 'Enter' || e.key === ' ' || e.key === 'Enter') {
@@ -1728,14 +1780,48 @@ window.onload = () => {
     const nameInput = document.getElementById('player-name');
     const game = new Game();
 
-    // --- Subject picker ---
-    let selectedSubject = 'python';
+    // --- Multi-select subject picker ---
+    // selectedSubjects: always an array of 1-4 subjects, default ["python"]
+    let selectedSubjects = ['python'];
+
     const subjectBtns = document.querySelectorAll('.subject-btn');
+
+    function syncSubjectToggleUI() {
+        subjectBtns.forEach(btn => {
+            const subj = btn.getAttribute('data-subject');
+            const on = selectedSubjects.includes(subj);
+            if (on) {
+                btn.classList.add('selected');
+                btn.setAttribute('aria-pressed', 'true');
+            } else {
+                btn.classList.remove('selected');
+                btn.setAttribute('aria-pressed', 'false');
+            }
+        });
+    }
+
     subjectBtns.forEach(btn => {
+        // Keyboard: Space / Enter toggles the button (accessibility)
+        btn.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'Enter') {
+                e.preventDefault();
+                btn.click();
+            }
+        });
+
         btn.addEventListener('click', () => {
-            subjectBtns.forEach(b => b.classList.remove('selected'));
-            btn.classList.add('selected');
-            selectedSubject = btn.getAttribute('data-subject') || 'python';
+            const subj = btn.getAttribute('data-subject');
+            if (!subj) return;
+            const alreadyOn = selectedSubjects.includes(subj);
+            if (alreadyOn) {
+                // Last one cannot be switched off
+                if (selectedSubjects.length === 1) return;
+                selectedSubjects = selectedSubjects.filter(s => s !== subj);
+            } else {
+                if (selectedSubjects.length >= 4) return;
+                selectedSubjects = [...selectedSubjects, subj];
+            }
+            syncSubjectToggleUI();
         });
     });
 
@@ -1745,10 +1831,10 @@ window.onload = () => {
         return raw.slice(0, 12);
     };
 
-    const startGame = (name, subject) => {
+    const startGame = (name, subjects) => {
         if (game.gameState !== STATE.MENU) return;
         overlay.classList.add('hidden');
-        game.start(name, subject);
+        game.start(name, subjects);
     };
 
     // Enable/disable both start buttons together
@@ -1776,12 +1862,15 @@ window.onload = () => {
 
     startBtn.addEventListener('click', () => {
         safeSfx('init');
-        startGame(getPlayerName(), selectedSubject);
+        startGame(getPlayerName(), selectedSubjects);
     });
     if (quickStartBtn) {
         quickStartBtn.addEventListener('click', () => {
             safeSfx('init');
-            startGame('Rider', 'python');
+            // Quick Start always uses ["python"] and the typed/default name
+            selectedSubjects = ['python'];
+            syncSubjectToggleUI();
+            startGame(getPlayerName(), ['python']);
         });
     }
 };
