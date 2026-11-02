@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Rider — Audio Synthesizer Test</title>
+    <style>
+        :root {
+            --bg-color: #0f1012;
+            --card-bg: #18191d;
+            --card-border: #2a2c33;
+            --text-primary: #e6e6e6;
+            --text-secondary: #9094a0;
+            --accent-yellow: #f59e0b;
+            --accent-yellow-hover: #d97706;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            padding: 2rem 1.5rem;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 760px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        header {
+            border-bottom: 2px solid var(--card-border);
+            padding-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        h1 .badge {
+            font-size: 0.8rem;
+            background: var(--accent-yellow);
+            color: #111;
+            font-weight: 700;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        p.subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 0.35rem;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            color: var(--accent-yellow);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-pill {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-weight: 600;
+            background: #2a2c33;
+            color: var(--text-secondary);
+        }
+
+        .status-pill.active {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .status-pill.uninitialized {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+            gap: 0.75rem;
+        }
+
+        button {
+            background: #22252c;
+            color: var(--text-primary);
+            border: 1px solid var(--card-border);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        button:hover {
+            background: #2b2f38;
+            border-color: #3e424e;
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(1px);
+            background: #1d1f25;
+        }
+
+        button .btn-label {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        button .btn-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        button.primary {
+            background: var(--accent-yellow);
+            color: #111111;
+            border: none;
+        }
+
+        button.primary .btn-label {
+            color: #111111;
+        }
+
+        button.primary .btn-desc {
+            color: #333333;
+        }
+
+        button.primary:hover {
+            background: var(--accent-yellow-hover);
+        }
+
+        button.danger {
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        button.danger:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: var(--accent-red);
+        }
+
+        button.danger .btn-label {
+            color: #fca5a5;
+        }
+
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .slider-row input[type="range"] {
+            flex: 1;
+            accent-color: var(--accent-yellow);
+            cursor: pointer;
+            height: 6px;
+        }
+
+        .slider-val {
+            font-family: monospace;
+            font-size: 1rem;
+            font-weight: bold;
+            color: var(--accent-yellow);
+            width: 48px;
+            text-align: right;
+        }
+
+        .speed-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .speed-buttons button {
+            flex: 1;
+            padding: 0.5rem;
+            text-align: center;
+            font-size: 0.85rem;
+            align-items: center;
+        }
+
+        #log {
+            background: #090a0c;
+            border: 1px solid var(--card-border);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #a3e635;
+            height: 140px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                Gesture Rider <span class="badge">Web Audio</span>
+            </h1>
+            <p class="subtitle">Section 9 audio synthesis verification test page. No external audio files.</p>
+        </header>
+
+        <!-- Init & Lifecycle -->
+        <div class="card">
+            <div class="card-title">
+                <span>Audio Engine Lifecycle</span>
+                <span id="audioStatus" class="status-pill uninitialized">Uninitialized</span>
+            </div>
+            <div class="btn-grid">
+                <button id="btnInit" class="primary" onclick="triggerInit()">
+                    <span class="btn-label">Sfx.init()</span>
+                    <span class="btn-desc">Required user gesture to unlock Web Audio</span>
+                </button>
+                <button onclick="testPreInitSafety()">
+                    <span class="btn-label">Test Pre-Init Safety</span>
+                    <span class="btn-desc">Calls all methods before init to verify no throw</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Continuous Synthesis: Engine & Wind -->
+        <div class="card">
+            <div class="card-title">Continuous Engine & Wind (Ported from game.js)</div>
+            <div class="slider-row">
+                <label for="speedSlider">Speed Ratio:</label>
+                <input id="speedSlider" type="range" min="0" max="1" step="0.01" value="0" oninput="updateThrottle(this.value)">
+                <span id="speedVal" class="slider-val">0.00</span>
+            </div>
+            <div class="speed-buttons">
+                <button onclick="setThrottle(0.0)">Idle (0.0)</button>
+                <button onclick="setThrottle(0.3)">Low (0.3)</button>
+                <button onclick="setThrottle(0.6)">Mid (0.6)</button>
+                <button onclick="setThrottle(1.0)">Max (1.0)</button>
+                <button class="danger" onclick="stopEngine()">Sfx.engineStop()</button>
+            </div>
+        </div>
+
+        <!-- Discrete SFX: One button per sound -->
+        <div class="card">
+            <div class="card-title">Sound Effects (One Button Per Sound)</div>
+            <div class="btn-grid">
+                <button onclick="playSound('coin')">
+                    <span class="btn-label">Sfx.coin()</span>
+                    <span class="btn-desc">Coin collected (+5 score)</span>
+                </button>
+                <button onclick="playSound('crash')">
+                    <span class="btn-label">Sfx.crash()</span>
+                    <span class="btn-desc">Hit traffic / crash object (-1 life)</span>
+                </button>
+                <button onclick="playSound('quizOpen')">
+                    <span class="btn-label">Sfx.quizOpen()</span>
+                    <span class="btn-desc">Checkpoint quiz opens</span>
+                </button>
+                <button onclick="playSound('correct')">
+                    <span class="btn-label">Sfx.correct()</span>
+                    <span class="btn-desc">Quiz answer correct (+100 score)</span>
+                </button>
+                <button onclick="playSound('wrong')">
+                    <span class="btn-label">Sfx.wrong()</span>
+                    <span class="btn-desc">Quiz wrong / timeout (-20 score)</span>
+                </button>
+                <button onclick="playSound('tick')">
+                    <span class="btn-label">Sfx.tick()</span>
+                    <span class="btn-desc">Countdown (3, 2, 1) or timer tick</span>
+                </button>
+                <button onclick="playSound('go')">
+                    <span class="btn-label">Sfx.go()</span>
+                    <span class="btn-desc">Countdown GO! signal</span>
+                </button>
+                <button class="danger" onclick="playSound('wasted')">
+                    <span class="btn-label">Sfx.wasted()</span>
+                    <span class="btn-desc">Game over / lives = 0</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="card">
+            <div class="card-title">Console / Event Log</div>
+            <div id="log">[Ready] Page loaded. Global Sfx is available.</div>
+        </div>
+
+        <div class="footer">
+            Gesture Rider &bull; Plain HTML/JS &bull; Web Audio API
+        </div>
+    </div>
+
+    <!-- Load audio.js from parent directory -->
+    <script src="../audio.js"></script>
+    <script>
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('audioStatus');
+        const sliderEl = document.getElementById('speedSlider');
+        const speedValEl = document.getElementById('speedVal');
+
+        function appendLog(msg) {
+            const time = new Date().toLocaleTimeString();
+            logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
+        }
+
+        function updateStatus() {
+            if (!window.Sfx) {
+                statusEl.textContent = 'Missing Sfx';
+                statusEl.className = 'status-pill uninitialized';
+                return;
+            }
+            if (Sfx.initialized && Sfx.ctx) {
+                statusEl.textContent = `Running (${Sfx.ctx.state})`;
+                statusEl.className = 'status-pill active';
+            } else {
+                statusEl.textContent = 'Uninitialized';
+                statusEl.className = 'status-pill uninitialized';
+            }
+        }
+
+        function triggerInit() {
+            if (!window.Sfx) {
+                appendLog('ERROR: Sfx not found on window object!');
+                return;
+            }
+            Sfx.init();
+            updateStatus();
+            appendLog(`Sfx.init() called. State: ${Sfx.ctx ? Sfx.ctx.state : 'null'}`);
+        }
+
+        function playSound(methodName) {
+            if (!window.Sfx || typeof window.Sfx[methodName] !== 'function') {
+                appendLog(`ERROR: Sfx.${methodName} is not a function!`);
+                return;
+            }
+            try {
+                window.Sfx[methodName]();
+                appendLog(`Called Sfx.${methodName}()`);
+            } catch (err) {
+                appendLog(`ERROR calling Sfx.${methodName}(): ${err.message}`);
+            }
+            updateStatus();
+        }
+
+        function updateThrottle(val) {
+            speedValEl.textContent = Number(val).toFixed(2);
+            if (window.Sfx) {
+                window.Sfx.engineUpdate(Number(val));
+                updateStatus();
+            }
+        }
+
+        function setThrottle(val) {
+            sliderEl.value = val;
+            updateThrottle(val);
+            appendLog(`Set engine throttle: ${val}`);
+        }
+
+        function stopEngine() {
+            if (window.Sfx) {
+                window.Sfx.engineStop();
+                sliderEl.value = 0;
+                speedValEl.textContent = '0.00';
+                appendLog('Called Sfx.engineStop()');
+            }
+        }
+
+        function testPreInitSafety() {
+            appendLog('--- Testing Pre-Init Safety ---');
+            const methods = ['engineUpdate', 'engineStop', 'coin', 'crash', 'quizOpen', 'correct', 'wrong', 'tick', 'go', 'wasted'];
+            let allPassed = true;
+            for (const m of methods) {
+                try {
+                    window.Sfx[m](0.5);
+                    appendLog(`Safe before init: Sfx.${m}() -> OK`);
+                } catch (e) {
+                    allPassed = false;
+                    appendLog(`FAILED before init: Sfx.${m}() threw: ${e.message}`);
+                }
+            }
+            if (allPassed) {
+                appendLog('SUCCESS: All 10 methods safe to call before init()!');
+            }
+        }
+
+        // Initialize display status on load
+        updateStatus();
+    </script>
+</body>
+</html>
