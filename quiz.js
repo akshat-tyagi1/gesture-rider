@@ -15,7 +15,13 @@
     1: 'easy',
     2: 'easy',
     3: 'easy-medium',
-    4: 'medium'
+    4: 'medium',
+    5: 'easy',
+    6: 'easy',
+    7: 'easy-medium',
+    8: 'easy-medium',
+    9: 'medium',
+    10: 'medium'
   };
 
   const TIER_ORDER = ['easy', 'easy-medium', 'medium'];
@@ -84,8 +90,9 @@
      */
     nextQuestion(checkpoint) {
       const cpNum = Number(checkpoint);
-      if (!CHECKPOINT_TIERS[cpNum]) {
-        throw new Error(`Invalid checkpoint: ${checkpoint}. Expected 1, 2, 3, or 4.`);
+      const targetTier = CHECKPOINT_TIERS[cpNum] || (Number.isFinite(cpNum) && cpNum >= 1 ? (cpNum % 3 === 1 ? 'easy' : (cpNum % 3 === 2 ? 'easy-medium' : 'medium')) : null);
+      if (!targetTier) {
+        throw new Error(`Invalid checkpoint: ${checkpoint}. Expected a positive checkpoint number.`);
       }
 
       // 1. Pick a subject from selected ones
@@ -108,7 +115,6 @@
 
       // 2. Pick question by tier from that subject's bank
       const bank = this._banks[pickedSubject];
-      const targetTier = CHECKPOINT_TIERS[cpNum];
       const unusedQuestions = bank.filter(q => !this._usedIds.has(q.id));
 
       if (unusedQuestions.length === 0) {

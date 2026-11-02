@@ -21,6 +21,10 @@
 <div id="game-container">
     <canvas id="gameCanvas"></canvas>
 
+    <!-- Collision & Damage overlay (NEEDS-HTML §2) -->
+    <div id="damage-flash" class="hidden"></div>
+    <div id="collision-banner" class="hidden"><span id="collision-banner-text">COLLISION -10</span></div>
+
     <!-- Webcam element (hidden in DOM, rendered to canvas/preview) -->
     <video id="input_video" style="display:none"></video>
     <canvas id="webcam-preview"></canvas>
@@ -51,11 +55,34 @@
         <div class="hud-lives-row">
             <div class="hud-pill" id="checkpoint-pill">
                 <span class="hud-pill-label">Checkpoint</span>
-                <span id="checkpointVal" class="hud-pill-val">Q 0/4</span>
+                <span id="checkpointVal" class="hud-pill-val">Q 0/10</span>
             </div>
+            <div id="grace-indicator" class="hidden"><span class="shield-icon">🛡️</span> <span id="grace-text">SHIELD ACTIVE</span></div>
             <div class="hud-pill" id="lives-pill">
                 <span class="hud-pill-label">Lives</span>
                 <span id="livesVal" class="hud-pill-val">❤️❤️❤️</span>
+            </div>
+            <button type="button" id="audio-toggle-btn" class="hud-btn" aria-label="Toggle Sound"><span id="audio-icon">🔊</span></button>
+        </div>
+
+        <!-- Top Screen Question Banner for 2-Track Choice Gates -->
+        <div id="top-question-banner" class="hidden">
+            <div class="tqb-header">
+                <span class="tqb-badge" id="tqb-subject">PYTHON</span>
+                <span class="tqb-counter" id="tqb-counter">QUESTION 1/10</span>
+                <span class="tqb-hint">STEER TO CORRECT TRACK</span>
+            </div>
+            <div class="tqb-question" id="tqb-question"></div>
+            <div class="tqb-tracks">
+                <div class="tqb-track left" id="tqb-left-track">
+                    <span class="tqb-track-tag">LEFT TRACK ◄</span>
+                    <span class="tqb-track-text" id="tqb-left-text"></span>
+                </div>
+                <div class="tqb-track-vs">VS</div>
+                <div class="tqb-track right" id="tqb-right-track">
+                    <span class="tqb-track-tag">► RIGHT TRACK</span>
+                    <span class="tqb-track-text" id="tqb-right-text"></span>
+                </div>
             </div>
         </div>
 
@@ -76,6 +103,12 @@
                 <span class="key">S</span>
                 <span class="key">D</span>
             </div>
+        </div>
+
+        <!-- Steering Direction Indicator (NEEDS-HTML §1) -->
+        <div id="steering-indicator">
+            <span id="steer-left" class="steer-arrow">◄ LEFT</span>
+            <span id="steer-right" class="steer-arrow">RIGHT ►</span>
         </div>
     </div>
 
@@ -142,7 +175,7 @@
             </div>
             <div class="stat-item">
                 <span class="stat-label">Answered</span>
-                <span id="stat-answered" class="stat-val">0/4</span>
+                <span id="stat-answered" class="stat-val">0/10</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">Accuracy</span>
@@ -242,6 +275,9 @@
 
 <!-- Audio -->
 <script src="audio.js"></script>
+
+<!-- Sprites (Cyberpunk Neon Scenery, Traffic & Obstacles) -->
+<script src="sprites.js"></script>
 
 <!-- Game Script -->
 <script src="game.js"></script>
